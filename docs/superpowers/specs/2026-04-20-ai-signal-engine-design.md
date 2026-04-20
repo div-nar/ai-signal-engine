@@ -49,29 +49,71 @@ ai-signal-engine/
 
 ## Data Pipeline (Layer 1)
 
-### Data Sources
+### Signal Philosophy
 
-**Supply signals** — capacity being built (lead time: 2–4 quarters)
+Signals are organised across the **full AI value chain** — not just the chip supply chain. This ensures Gemini has visibility into all six layers of the stack and can surface opportunities across the entire 90-stock universe, not just semiconductors.
 
-| Source | What it measures | Ingestion method |
+```
+Compute → Power → Infrastructure → Platform → Application → Domain
+```
+
+Each layer has its own leading indicators and its own set of stocks that benefit when that layer expands.
+
+### Data Sources by Value Chain Layer
+
+**Layer: Compute** — chips being designed and manufactured (lead: 2–4 quarters)
+
+| Source | What it measures | Benefits |
 |---|---|---|
-| ASML quarterly order backlog | EUV machines → future chip capacity | EDGAR 6-K / earnings transcript |
-| TSMC monthly revenue by node | Advanced node utilization | IR page scrape / RSS |
-| Micron/SK Hynix capacity outlook | HBM supply for training runs | EDGAR 8-K transcript |
+| ASML quarterly order backlog | EUV machines → future fab capacity | NVDA, AMD, AVGO, AMAT, LRCX, TSM, ASML |
+| TSMC monthly revenue by node | Advanced node utilization | TSM, NVDA, AMD, AVGO |
+| Micron/SK Hynix capacity outlook | HBM supply for training runs | MU, LRCX, AMAT |
 
-**Demand signals** — compute being bought (lead time: 1–2 quarters)
+**Layer: Power** — energy being committed to AI infrastructure (lead: 2–3 quarters)
 
-| Source | What it measures | Ingestion method |
+| Source | What it measures | Benefits |
 |---|---|---|
-| Hyperscaler CapEx guidance | GPU purchase commitments | EDGAR 8-K (MSFT, AMZN, GOOGL, META) |
-| arXiv paper compute intensity | Scale of next training runs | arXiv API (cs.AI, cs.LG, cs.AR) |
-| SemiAnalysis articles | Curated semiconductor/AI analysis | RSS feed (full content) |
-| GPU spot pricing | Real-time supply/demand tension | Public pricing APIs (Lambda, CoreWeave) |
+| Power purchase agreements (PPAs) | Multi-year clean energy commitments by hyperscalers | VST, CEG, NEE, AES, ETN, PWR |
+| Utility interconnection queue | Grid capacity reserved for datacenters | EIX, NRG, VST, CEG |
+| Vertiv / cooling equipment orders | Datacenter thermal infra buildout | VRT, GE |
+
+**Layer: Infrastructure** — physical compute capacity being built (lead: 1–2 quarters)
+
+| Source | What it measures | Benefits |
+|---|---|---|
+| Datacenter REIT leasing announcements | Space committed to hyperscalers | DLR, EQIX, IRM, AMT |
+| Hyperscaler CapEx guidance | GPU cluster purchase commitments | MSFT, AMZN, GOOGL, META |
+| Networking equipment orders | InfiniBand/Ethernet switch demand | ANET, AVGO, CSCO |
+
+**Layer: Platform** — cloud and AI services being built (lead: 1–2 quarters)
+
+| Source | What it measures | Benefits |
+|---|---|---|
+| Cloud CapEx guidance (EDGAR 8-K) | MSFT/AMZN/GOOGL/META investment signals | MSFT, AMZN, GOOGL, META, BABA |
+| GPU spot pricing index | Real-time supply/demand tension | NVDA, AMD, cloud providers |
+| arXiv paper compute intensity | Scale of next training runs | NVDA, AMD, TSM, MU |
+
+**Layer: Application** — AI being deployed in enterprise software (lead: 1–2 quarters)
+
+| Source | What it measures | Benefits |
+|---|---|---|
+| SemiAnalysis articles (RSS) | Curated AI/semiconductor analysis | Broad — Gemini maps mentions to tickers |
+| Enterprise AI revenue disclosures | Copilot/AI feature adoption rates | CRM, NOW, PLTR, INTU, ADBE, SAP |
+| arXiv application papers | AI adoption in specific domains | INFY, ACN, IBM |
+
+**Layer: Domain** — AI transforming specific industries (lead: 2–4 quarters)
+
+| Source | What it measures | Benefits |
+|---|---|---|
+| AI drug discovery announcements | Clinical trials using AI | LLY, ISRG, AMGN, GILD |
+| Financial AI disclosures | Algorithmic trading, fraud detection | GS, JPM, V, MA, IBKR |
+| Industrial automation orders | AI-driven robotics, defence AI | HON, GE, AXON, RTX, LMT |
 
 ### Ingestion Rules
 - Deduplicate by URL / arXiv ID / EDGAR accession number
 - Only process documents not yet in `documents` table
 - Store full content — Gemini needs it for grounded reasoning
+- Tag each document with its value chain layer on ingestion
 
 ---
 
@@ -87,7 +129,8 @@ CREATE TABLE documents (
   published_at TIMESTAMP,
   content      TEXT,
   ingested_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  scored       BOOLEAN DEFAULT FALSE
+  scored       BOOLEAN DEFAULT FALSE,
+  value_chain_layer TEXT   -- 'compute'|'power'|'infrastructure'|'platform'|'application'|'domain'
 );
 
 -- Per-document scores (intermediate)
@@ -153,20 +196,36 @@ benefit most from the NEXT 1-4 quarters of AI compute expansion.
 Universe: {90 tickers with sectors}
 Constraints: max 10% per stock, weights sum to 1.0, long-only
 
-[SIGNAL CONTEXT — injected fresh each run]
-Supply signals:
+[SIGNAL CONTEXT — injected fresh each run, organised by value chain layer]
+
+Compute layer:
   - ASML order backlog: {value vs trend}
   - TSMC advanced node utilization: {value vs trend}
-  - Memory capacity outlook: {summary}
+  - Memory (HBM) capacity outlook: {summary}
 
-Demand signals:
+Power layer:
+  - Recent PPA announcements: {hyperscaler clean energy commitments}
+  - Utility interconnection queue changes: {summary}
+  - Cooling/infrastructure orders: {Vertiv, GE summaries}
+
+Infrastructure layer:
+  - Datacenter REIT leasing activity: {DLR, EQIX, IRM announcements}
   - Hyperscaler CapEx guidance: {MSFT/AMZN/GOOGL/META excerpts}
-  - arXiv compute intensity trend: {paper velocity stats}
-  - GPU spot pricing: {current vs 30d avg}
+  - Networking equipment demand: {Arista, Broadcom signals}
 
-Recent SemiAnalysis articles:
-  - {title}: {full content}
-  ...
+Platform layer:
+  - GPU spot pricing: {current vs 30d avg}
+  - arXiv compute intensity trend: {paper velocity stats}
+  - Cloud availability zone announcements: {summary}
+
+Application layer:
+  - Enterprise AI revenue disclosures: {Copilot, AI feature adoption}
+  - SemiAnalysis articles: {title + full content}
+
+Domain layer:
+  - AI drug discovery / clinical trial announcements
+  - Financial AI disclosures
+  - Industrial automation / defence AI orders
 
 [TASK]
 Given these forward-looking signals and Aschenbrenner's thesis, output
@@ -232,7 +291,10 @@ Three JSON files written to `ai-portfolio-backtest/data/`:
   "signal_confidence":     0.76,
   "thesis_stress":         false,
   "thesis_update":         "ASML order backlog up 18% QoQ...",
-  "signal_breakdown":      { "semianalysis": 0.3, "capex_guidance": 0.6, "arxiv": 0.1 }
+  "signal_breakdown":      {
+    "compute": 0.25, "power": 0.15, "infrastructure": 0.20,
+    "platform": 0.20, "application": 0.10, "domain": 0.10
+  }
 }
 ```
 
