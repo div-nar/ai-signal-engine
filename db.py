@@ -85,6 +85,18 @@ def get_unscored_documents(db_path: str = str(DEFAULT_DB)) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_recent_documents(db_path: str = str(DEFAULT_DB), days: int = 30) -> list[dict]:
+    """Return all documents ingested within the last N days."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM documents WHERE ingested_at > datetime('now', ?) ORDER BY ingested_at",
+        (f"-{days} days",),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def mark_scored(db_path: str, doc_ids: list[int]) -> None:
     if not doc_ids:
         return

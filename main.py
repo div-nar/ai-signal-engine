@@ -13,15 +13,13 @@ Prerequisites:
 """
 import argparse
 import json
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 from config import (
     DB_PATH, RSS_FEEDS, ARXIV_CATEGORIES, ARXIV_MAX_RESULTS,
     EDGAR_TICKERS,
 )
-from db import init_db, get_unscored_documents, mark_scored, insert_signal
+from db import init_db, get_unscored_documents, get_recent_documents, mark_scored, insert_signal
 from ingestion.rss import ingest_rss
 from ingestion.arxiv import ingest_arxiv
 from ingestion.transcripts import ingest_edgar
@@ -81,14 +79,7 @@ def main():
         return
 
     if not unscored and args.force:
-        import sqlite3
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM documents WHERE ingested_at > datetime('now', '-30 days') ORDER BY ingested_at"
-        ).fetchall()
-        conn.close()
-        unscored = [dict(r) for r in rows]
+        unscored = get_recent_documents(DB_PATH, days=30)
         print(f"Force mode: re-scoring {len(unscored)} documents from last 30 days")
 
     if not unscored:
