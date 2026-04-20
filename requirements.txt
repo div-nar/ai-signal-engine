@@ -4,3 +4,4 @@ httpx==0.28.1
 google-genai==1.9.0
 pytest==8.2.0
 pytest-mock==3.14.0
+alpaca-py==0.38.0

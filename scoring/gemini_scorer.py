@@ -43,7 +43,7 @@ Output ONLY valid JSON matching this schema exactly:
 }}"""
 
 
-def build_signal_context(docs: list[dict]) -> str:
+def build_signal_context(docs: list[dict], current_portfolio: dict = None) -> str:
     """Assemble documents into a structured prompt context organised by value chain layer."""
     by_layer = defaultdict(list)
     for doc in docs:
@@ -65,7 +65,20 @@ def build_signal_context(docs: list[dict]) -> str:
             )
         sections.append(header + "\n---\n".join(entries))
 
-    return "\n".join(sections)
+    # Prepend current portfolio if available
+    portfolio_section = ""
+    if current_portfolio:
+        sorted_positions = sorted(current_portfolio.items(), key=lambda x: -x[1])
+        lines = [f"  {ticker}: {weight:.1%}" for ticker, weight in sorted_positions[:20]]
+        portfolio_section = (
+            "### CURRENT PORTFOLIO POSITIONS\n"
+            "You currently hold these positions. Factor them into your recommendations —\n"
+            "avoid large rotations unless the signal strongly justifies it.\n"
+            + "\n".join(lines)
+            + "\n"
+        )
+
+    return portfolio_section + "\n".join(sections)
 
 
 def parse_gemini_response(text: str) -> dict:
@@ -124,16 +137,22 @@ def score_documents(
     docs: list[dict],
     db_path: str = str(DEFAULT_DB),
     prev_weights: Optional[dict] = None,
+    current_portfolio: Optional[dict] = None,
 ) -> dict:
     """Call Gemini with assembled signal context. Returns structured signal dict.
 
     DB persistence (insert_signal) is the caller's responsibility.
     db_path is reserved for future per-document scoring.
+    current_portfolio: live Alpaca positions {ticker: weight}, used as Gemini context
+                       and as prev_weights baseline for guardrails if prev_weights is empty.
     """
     if prev_weights is None:
         prev_weights = {}
 
-    context = build_signal_context(docs)
+    # Use live portfolio as guardrail baseline when available
+    guardrail_baseline = current_portfolio if current_portfolio else prev_weights
+
+    context = build_signal_context(docs, current_portfolio=current_portfolio)
     universe_str = ", ".join(TICKER_UNIVERSE)
     system = _SYSTEM_PROMPT.format(universe=universe_str)
 
@@ -156,7 +175,7 @@ Output your portfolio JSON now. Remember: weights must sum to 1.0, max 10% per s
 
     raw = parse_gemini_response(response.text)
 
-    guarded = apply_guardrails(raw, prev_weights)
+    guarded = apply_guardrails(raw, guardrail_baseline)
 
     # Postcondition: guardrails must produce valid weights
     final_sum = sum(p["weight"] for p in guarded["portfolio"])

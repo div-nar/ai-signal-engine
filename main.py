@@ -27,6 +27,30 @@ from scoring.gemini_scorer import score_documents
 from export import export_signal
 
 
+def get_alpaca_positions() -> dict:
+    """Fetch current paper portfolio weights from Alpaca. Returns {} if unavailable."""
+    import os
+    api_key = os.environ.get("ALPACA_API_KEY")
+    secret_key = os.environ.get("ALPACA_SECRET_KEY")
+    if not api_key or not secret_key:
+        return {}
+    try:
+        from alpaca.trading.client import TradingClient
+        client = TradingClient(api_key, secret_key, paper=True)
+        account = client.get_account()
+        portfolio_value = float(account.portfolio_value)
+        if portfolio_value <= 0:
+            return {}
+        positions = client.get_all_positions()
+        return {
+            p.symbol: float(p.market_value) / portfolio_value
+            for p in positions
+        }
+    except Exception as e:
+        print(f"  WARNING: Could not fetch Alpaca positions: {e}")
+        return {}
+
+
 def get_prev_weights(db_path: str) -> dict:
     """Load stock conviction scores from most recent signals row."""
     import sqlite3
@@ -89,7 +113,17 @@ def main():
     # 4. Score
     print(f"\n--- Scoring {len(unscored)} documents via Gemini ---")
     prev_weights = get_prev_weights(DB_PATH)
-    signal = score_documents(docs=unscored, db_path=DB_PATH, prev_weights=prev_weights)
+
+    # Fetch live Alpaca positions for Gemini context + guardrail baseline
+    print("\nFetching current Alpaca portfolio...")
+    current_portfolio = get_alpaca_positions()
+    if current_portfolio:
+        top = sorted(current_portfolio.items(), key=lambda x: -x[1])[:5]
+        print(f"  {len(current_portfolio)} positions | top: " + ", ".join(f"{t} {w:.1%}" for t, w in top))
+    else:
+        print("  No Alpaca positions (credentials not set or empty portfolio)")
+
+    signal = score_documents(docs=unscored, db_path=DB_PATH, prev_weights=prev_weights, current_portfolio=current_portfolio)
 
     # 5. Persist
     doc_ids = [d["id"] for d in unscored]
