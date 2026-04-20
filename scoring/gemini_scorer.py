@@ -1,4 +1,5 @@
 # ai-signal-engine/scoring/gemini_scorer.py
+import copy
 import json
 import os
 import re
@@ -12,7 +13,7 @@ from config import (
     TICKER_UNIVERSE, MAX_STOCK_WEIGHT, MAX_TURNOVER_VS_PREV,
     WEIGHT_SUM_TOLERANCE, VALUE_CHAIN_LAYERS,
 )
-from db import insert_signal, DEFAULT_DB
+from db import DEFAULT_DB
 
 
 _SYSTEM_PROMPT = """You are a portfolio manager for an AI-focused long-only equity fund.
@@ -69,14 +70,19 @@ def build_signal_context(docs: list[dict]) -> str:
 
 def parse_gemini_response(text: str) -> dict:
     """Parse Gemini response text into a dict, stripping markdown code fences if present."""
+    # Try to extract content between ```json ... ``` or ``` ... ``` fences first
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        return json.loads(match.group(1))
+    # Fall back to stripping any leading/trailing fence and trailing commentary
     text = re.sub(r"^```(?:json)?\s*", "", text.strip())
-    text = re.sub(r"\s*```$", "", text.strip())
+    text = re.sub(r"\s*```.*$", "", text.strip(), flags=re.DOTALL)
     return json.loads(text)
 
 
 def apply_guardrails(output: dict, prev_weights: dict) -> dict:
     """Apply hard constraints to Gemini portfolio output."""
-    portfolio = output["portfolio"]
+    portfolio = copy.deepcopy(output["portfolio"])
 
     # 1. Cap max weight iteratively, re-normalizing each time until all weights
     #    are within the cap. This handles cases where normalizing pushes some
@@ -119,7 +125,11 @@ def score_documents(
     db_path: str = str(DEFAULT_DB),
     prev_weights: Optional[dict] = None,
 ) -> dict:
-    """Call Gemini with assembled signal context. Returns structured signal dict."""
+    """Call Gemini with assembled signal context. Returns structured signal dict.
+
+    DB persistence (insert_signal) is the caller's responsibility.
+    db_path is reserved for future per-document scoring.
+    """
     if prev_weights is None:
         prev_weights = {}
 
@@ -147,6 +157,11 @@ Output your portfolio JSON now. Remember: weights must sum to 1.0, max 10% per s
     raw = parse_gemini_response(response.text)
 
     guarded = apply_guardrails(raw, prev_weights)
+
+    # Postcondition: guardrails must produce valid weights
+    final_sum = sum(p["weight"] for p in guarded["portfolio"])
+    if abs(final_sum - 1.0) > WEIGHT_SUM_TOLERANCE:
+        raise ValueError(f"Portfolio weights sum to {final_sum:.4f} after guardrails — malformed Gemini output")
 
     conviction_map = {p["ticker"]: p["conviction"] for p in guarded["portfolio"]}
     reasoning_map = {p["ticker"]: p["reasoning"] for p in guarded["portfolio"]}

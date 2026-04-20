@@ -64,7 +64,7 @@ TICKER_UNIVERSE = [
 ]
 
 # ── Gemini ─────────────────────────────────────────────────────────────────────
-GEMINI_MODEL = "gemini-2.5-pro-preview-05-06"
+GEMINI_MODEL = "gemini-3-flash-preview"
 GEMINI_MAX_OUTPUT_TOKENS = 8192
 
 # ── Guardrails ─────────────────────────────────────────────────────────────────

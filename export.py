@@ -14,6 +14,7 @@ def export_signal(signal: dict, output_dir: str = str(BACKTEST_DATA_DIR)) -> Non
     now = datetime.now(timezone.utc).isoformat()
 
     conviction = json.loads(signal["stock_conviction"])
+    weights = json.loads(signal.get("stock_weights", "{}"))
     reasoning = json.loads(signal["stock_reasoning"])
     signal_breakdown = json.loads(signal["signal_breakdown"])
 
@@ -29,6 +30,7 @@ def export_signal(signal: dict, output_dir: str = str(BACKTEST_DATA_DIR)) -> Non
     stock_signals_file.write_text(json.dumps({
         "generated_at": now,
         "conviction": conviction,
+        "weights": weights,
         "reasoning": reasoning,
     }, indent=2))
 
