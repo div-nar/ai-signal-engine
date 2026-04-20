@@ -36,7 +36,7 @@ def get_alpaca_positions() -> dict:
         return {}
     try:
         from alpaca.trading.client import TradingClient
-        client = TradingClient(api_key, secret_key, paper=True)
+        client = TradingClient(api_key, secret_key, paper=False)
         account = client.get_account()
         portfolio_value = float(account.portfolio_value)
         if portfolio_value <= 0:

@@ -115,19 +115,7 @@ def apply_guardrails(output: dict, prev_weights: dict) -> dict:
         if all(p["weight"] <= MAX_STOCK_WEIGHT + _EPS for p in portfolio):
             break
 
-    # 2. Apply turnover cap vs previous weights
-    if prev_weights:
-        for p in portfolio:
-            prev = prev_weights.get(p["ticker"], 0.0)
-            delta = p["weight"] - prev
-            if abs(delta) > MAX_TURNOVER_VS_PREV:
-                p["weight"] = prev + MAX_TURNOVER_VS_PREV * (1 if delta > 0 else -1)
-        # Re-normalize after turnover cap (only for multi-stock portfolios)
-        if len(portfolio) > 1:
-            total = sum(p["weight"] for p in portfolio)
-            if total > 0:
-                for p in portfolio:
-                    p["weight"] = p["weight"] / total
+    # Turnover cap intentionally removed — live account, unrestricted rebalancing.
 
     output["portfolio"] = portfolio
     return output
