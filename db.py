@@ -1,5 +1,4 @@
 # ai-signal-engine/db.py
-import json
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -87,6 +86,8 @@ def get_unscored_documents(db_path: str = str(DEFAULT_DB)) -> list[dict]:
 
 
 def mark_scored(db_path: str, doc_ids: list[int]) -> None:
+    if not doc_ids:
+        return
     conn = sqlite3.connect(db_path)
     conn.execute(
         f"UPDATE documents SET scored = 1 WHERE id IN ({','.join('?' * len(doc_ids))})",

@@ -1,7 +1,5 @@
 # ai-signal-engine/tests/test_db.py
 import sqlite3
-import tempfile
-import os
 import pytest
 from db import init_db, insert_document, get_unscored_documents, mark_scored, insert_signal
 
