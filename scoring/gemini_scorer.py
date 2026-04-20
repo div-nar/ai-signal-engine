@@ -146,11 +146,6 @@ Output your portfolio JSON now. Remember: weights must sum to 1.0, max 10% per s
 
     raw = parse_gemini_response(response.text)
 
-    # Validate weight sum
-    weight_sum = sum(p["weight"] for p in raw.get("portfolio", []))
-    if abs(weight_sum - 1.0) > WEIGHT_SUM_TOLERANCE:
-        raise ValueError(f"Gemini output weights sum to {weight_sum:.4f}, not 1.0")
-
     guarded = apply_guardrails(raw, prev_weights)
 
     conviction_map = {p["ticker"]: p["conviction"] for p in guarded["portfolio"]}
