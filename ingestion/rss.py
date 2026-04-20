@@ -1,9 +1,8 @@
 # ai-signal-engine/ingestion/rss.py
 import re
 from html.parser import HTMLParser
-from typing import Optional
 import feedparser
-from db import init_db, insert_document, DEFAULT_DB
+from db import insert_document, DEFAULT_DB
 
 
 class _HTMLStripper(HTMLParser):

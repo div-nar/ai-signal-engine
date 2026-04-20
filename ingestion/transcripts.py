@@ -13,7 +13,8 @@ def _cik_padded(cik: str) -> str:
 
 def fetch_edgar_filings(cik: str, ticker: str, max_filings: int) -> list[dict]:
     """Fetch recent 8-K filings for a given company CIK."""
-    padded = _cik_padded(cik)
+    padded = _cik_padded(cik)          # 10-digit zero-padded for submissions API
+    cik_int = cik.lstrip("0") or "0"   # bare integer for Archives path
     url = f"{EDGAR_BASE}/submissions/CIK{padded}.json"
     resp = httpx.get(url, headers=_HEADERS, timeout=30)
     resp.raise_for_status()
@@ -33,14 +34,14 @@ def fetch_edgar_filings(cik: str, ticker: str, max_filings: int) -> list[dict]:
             break
 
         acc_fmt = acc.replace("-", "")
-        filing_url = f"https://www.sec.gov/Archives/edgar/data/{padded.lstrip('0')}/{acc_fmt}/{doc}"
+        filing_url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_fmt}/{doc}"
 
         try:
             filing_resp = httpx.get(filing_url, headers=_HEADERS, timeout=30)
             filing_resp.raise_for_status()
             content = filing_resp.text[:50_000]
-        except Exception:
-            content = ""
+        except Exception as exc:
+            content = f"[fetch_error: {exc}]"
 
         filings.append({
             "url": filing_url,
