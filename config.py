@@ -32,7 +32,7 @@ EDGAR_MAX_PER_TICKER = 3
 # ── Value chain layer tags ─────────────────────────────────────────────────────
 VALUE_CHAIN_LAYERS = ["compute", "power", "infrastructure", "platform", "application", "domain"]
 
-# ── Ticker universe (97 stocks) ────────────────────────────────────────────────
+# ── Ticker universe (95 stocks) ────────────────────────────────────────────────
 TICKER_UNIVERSE = [
     # Information Technology — compute stack (chips, EDA, foundry, memory, packaging)
     "NVDA", "AMD", "AVGO", "AMAT", "LRCX", "KLAC", "TSM", "ASML", "ARM", "TOELY",
