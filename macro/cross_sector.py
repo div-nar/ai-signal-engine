@@ -45,21 +45,22 @@ def fetch_cross_sector_signal() -> dict:
     if std > 1e-9:
         power_compute_lead = latest_spread_ret / std
     else:
-        # Near-zero std means spread momentum is highly consistent; use sign of latest
-        power_compute_lead = float(np.sign(latest_spread_ret))
+        # Near-zero std means there's no meaningful signal
+        power_compute_lead = 0.0
 
     # ── Copper → Infrastructure lead ──────────────────────────────────────
     # Positive score means FCX 30d return is positive (copper trending up).
-    # We z-score the absolute return series against zero (using std as normalizer)
-    # so that a rising price always gives a positive lead score.
+    # We z-score the return against its mean using proper z-score formula:
+    # (value - mean) / std. This ensures a rising price gives a positive lead score.
     fcx_ret = data["FCX"].pct_change(30).dropna()
+    fcx_mean = float(fcx_ret.mean())
     fcx_std = float(fcx_ret.std())
     fcx_latest = float(fcx_ret.iloc[-1]) if len(fcx_ret) else 0.0
     if fcx_std > 1e-9:
-        copper_infra_lead = fcx_latest / fcx_std
+        copper_infra_lead = (fcx_latest - fcx_mean) / fcx_std
     else:
-        # Near-zero std means FCX return is highly consistent; use sign of latest return
-        copper_infra_lead = float(np.sign(fcx_latest))
+        # Near-zero std means there's no meaningful signal
+        copper_infra_lead = 0.0
 
     # ── Credit stress ─────────────────────────────────────────────────────
     vix_level = float(data["^VIX"].iloc[-1])
