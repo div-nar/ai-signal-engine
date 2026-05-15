@@ -23,14 +23,20 @@ def fetch_supply_chain_signal() -> dict:
 
     fred = Fred(api_key=api_key)
 
-    # ── PMI ────────────────────────────────────────────────────────────────
-    pmi_series = fred.get_series("NAPM", observation_start="2024-01-01")
-    latest_pmi = float(pmi_series.iloc[-1])
-    prev_pmi = float(pmi_series.iloc[-2]) if len(pmi_series) >= 2 else latest_pmi
+    # ── Manufacturing orders (DGORDER: Durable Goods Orders, $M) ──────────
+    # NAPM/ISM PMI is no longer free on FRED; DGORDER is the best freely
+    # available leading indicator with comparable signal properties.
+    dgorder = fred.get_series("DGORDER", observation_start="2024-01-01")
+    latest_orders = float(dgorder.iloc[-1])
+    prev_orders = float(dgorder.iloc[-2]) if len(dgorder) >= 2 else latest_orders
+    mom_pct = (latest_orders - prev_orders) / prev_orders if prev_orders != 0 else 0.0
 
-    if latest_pmi >= 50:
+    # Synthesise a PMI-scale value (centred at 50) for downstream compatibility
+    latest_pmi = float(min(max(50.0 + mom_pct * 500, 30.0), 70.0))
+
+    if mom_pct > 0.005:
         pmi_trend = "expanding"
-    elif latest_pmi < 50 and latest_pmi < prev_pmi:
+    elif mom_pct < -0.005:
         pmi_trend = "contracting"
     else:
         pmi_trend = "stable"
@@ -52,7 +58,7 @@ def fetch_supply_chain_signal() -> dict:
     if len(bdry) < 31:
         shipping_pressure = 0.5
     else:
-        ret_30d = float((bdry.iloc[-1] - bdry.iloc[-31]) / bdry.iloc[-31])
+        ret_30d = float((bdry.iloc[-1] - bdry.iloc[-31]) / float(bdry.iloc[-31]))
         # Map [-10%, +20%] → [0.0, 1.0]
         shipping_pressure = float(min(max((ret_30d + 0.10) / 0.30, 0.0), 1.0))
 

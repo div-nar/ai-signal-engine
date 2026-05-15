@@ -19,8 +19,9 @@ def test_fetch_supply_chain_signal_returns_required_keys():
          patch("macro.supply_chain.Fred") as mock_fred_cls, \
          patch("macro.supply_chain.yf.download") as mock_dl:
         mock_fred = MagicMock()
+        # DGORDER: flat orders, IPG3344S: falling semis
         mock_fred.get_series.side_effect = lambda s, **kw: _make_fred_series(
-            [49.1, 49.5, 50.1, 48.9, 48.5] if s == "NAPM" else [98.0, 97.5, 97.0, 96.5, 96.0]
+            [280000.0, 280000.0, 280500.0] if s == "DGORDER" else [98.0, 97.5, 97.0]
         )
         mock_fred_cls.return_value = mock_fred
         mock_dl.return_value = _make_yf_close([100] * 40 + [115] * 20)
@@ -34,13 +35,15 @@ def test_fetch_supply_chain_signal_returns_required_keys():
 
 
 def test_pmi_below_50_and_falling_is_contracting():
+    # DGORDER MoM < -0.5% → contracting; pmi = 50 + mom_pct*500
+    # prev=280000, latest=277000 → mom=-1.07% → pmi≈44.6
     from macro.supply_chain import fetch_supply_chain_signal
     with patch.dict(os.environ, {"FRED_API_KEY": "test"}), \
          patch("macro.supply_chain.Fred") as mock_fred_cls, \
          patch("macro.supply_chain.yf.download") as mock_dl:
         mock_fred = MagicMock()
         mock_fred.get_series.side_effect = lambda s, **kw: _make_fred_series(
-            [51.0, 50.0, 49.0, 48.5, 47.9] if s == "NAPM" else [98.0] * 5
+            [280000.0, 277000.0] if s == "DGORDER" else [98.0] * 5
         )
         mock_fred_cls.return_value = mock_fred
         mock_dl.return_value = _make_yf_close([100] * 60)
@@ -48,22 +51,27 @@ def test_pmi_below_50_and_falling_is_contracting():
         result = fetch_supply_chain_signal()
 
     assert result["pmi_trend"] == "contracting"
-    assert result["pmi"] == pytest.approx(47.9)
+    assert result["pmi"] < 50.0
 
 
 def test_pmi_above_50_is_expanding():
+    # DGORDER MoM > +0.5% → expanding
+    # prev=280000, latest=283000 → mom=+1.07% → expanding
     from macro.supply_chain import fetch_supply_chain_signal
     with patch.dict(os.environ, {"FRED_API_KEY": "test"}), \
          patch("macro.supply_chain.Fred") as mock_fred_cls, \
          patch("macro.supply_chain.yf.download") as mock_dl:
         mock_fred = MagicMock()
-        mock_fred.get_series.side_effect = lambda s, **kw: _make_fred_series([52.0, 53.0, 54.0])
+        mock_fred.get_series.side_effect = lambda s, **kw: _make_fred_series(
+            [280000.0, 283000.0] if s == "DGORDER" else [98.0] * 5
+        )
         mock_fred_cls.return_value = mock_fred
         mock_dl.return_value = _make_yf_close([100] * 60)
 
         result = fetch_supply_chain_signal()
 
     assert result["pmi_trend"] == "expanding"
+    assert result["pmi"] > 50.0
 
 
 def test_high_shipping_momentum_gives_high_pressure():
@@ -75,7 +83,7 @@ def test_high_shipping_momentum_gives_high_pressure():
          patch("macro.supply_chain.Fred") as mock_fred_cls, \
          patch("macro.supply_chain.yf.download") as mock_dl:
         mock_fred = MagicMock()
-        mock_fred.get_series.side_effect = lambda s, **kw: _make_fred_series([52.0, 53.0, 52.5])
+        mock_fred.get_series.side_effect = lambda s, **kw: _make_fred_series([280000.0, 282000.0])
         mock_fred_cls.return_value = mock_fred
         mock_dl.return_value = _make_yf_close(base + high)
 
@@ -90,9 +98,9 @@ def test_falling_semis_ip_is_drawing_down():
          patch("macro.supply_chain.Fred") as mock_fred_cls, \
          patch("macro.supply_chain.yf.download") as mock_dl:
         mock_fred = MagicMock()
-        # NAPM stable above 50, IPG3344S falling
+        # DGORDER flat, IPG3344S falling
         mock_fred.get_series.side_effect = lambda s, **kw: _make_fred_series(
-            [52.0, 52.0, 52.0] if s == "NAPM" else [100.0, 99.0, 98.0]
+            [280000.0, 280000.0] if s == "DGORDER" else [100.0, 99.0, 98.0]
         )
         mock_fred_cls.return_value = mock_fred
         mock_dl.return_value = _make_yf_close([100] * 60)
