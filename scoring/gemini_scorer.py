@@ -3,6 +3,7 @@ import copy
 import json
 import os
 import re
+import time
 from collections import defaultdict
 from typing import Optional
 
@@ -10,47 +11,105 @@ from google import genai
 
 from config import (
     GEMINI_MODEL, GEMINI_MAX_OUTPUT_TOKENS,
-    TICKER_UNIVERSE, MAX_STOCK_WEIGHT, MAX_TURNOVER_VS_PREV,
+    TICKER_UNIVERSE, MAX_STOCK_WEIGHT, MAX_SHORT_WEIGHT, MAX_TURNOVER_VS_PREV,
     WEIGHT_SUM_TOLERANCE, VALUE_CHAIN_LAYERS,
 )
 from db import DEFAULT_DB
 
 
-_SYSTEM_PROMPT = """You are a portfolio manager for an AI-focused long-only equity fund.
-Your thesis is Aschenbrenner's: AI is on an exponential compute trajectory toward AGI.
-Your job is to identify which stocks in the universe will benefit most from the NEXT 1-4
-quarters of AI compute expansion.
+_SYSTEM_PROMPT = """You are a portfolio manager for an AI infrastructure long/short equity fund.
+Your thesis is Aschenbrenner's: AI is on an exponential compute trajectory toward AGI,
+driven by a physical buildout supercycle — chips, memory, power, cooling, datacenters, networking.
+Your job is to identify which stocks will benefit most from the NEXT 1-4 quarters of AI
+infrastructure spending: capex commitments, supply chain bottlenecks, and compute expansion.
 
-Universe: {universe}
+Focus on BOTH sides of the AI buildout — supply bottlenecks AND demand-side compute consumers:
 
-Constraints:
-- Max 10% weight per stock
-- All weights must sum to exactly 1.0
-- Long-only (no shorts)
-- Include at least one Health Care and one Consumer Staples stock as hedges (min 2% each)
+SUPPLY-SIDE (physical bottlenecks the buildout is constrained by):
+- Compute: GPUs, ASICs, networking chips, foundry, HBM memory, advanced packaging
+- Power & cooling: utilities, thermal management, grid equipment, power electronics
+- Infrastructure: datacenter REITs, interconnects, fiber, structural components
+
+DEMAND-SIDE (hyperscalers and platforms whose earnings scale with AI compute consumption):
+- Hyperscalers driving the capex cycle: their own AI revenue (Cloud AI, model APIs, AI ad/search uplift)
+- AI software platforms whose revenue scales directly with compute consumption
+- Companies monetising AI products at scale (Gemini, Copilot, ChatGPT-class APIs, AI ad units)
+
+Universe (you may pick any publicly traded stock globally): {universe}
+
+PORTFOLIO STRUCTURE:
+- Long book (portfolio): highest-conviction AI buildout beneficiaries. Weights sum to 1.0. Max 10% per stock.
+- Short book (short_portfolio): lowest-conviction names in the same factor space as longs — genuine
+  pairs, not random hedges. Example: long NVDA, short AMD (same sector, lower conviction).
+  Weights sum to 1.0. Max 8% per stock.
+- Net exposure is controlled by the MACRO REGIME SIGNAL above — follow net_exposure_target exactly.
+- Every position must be directly tied to AI buildout.
 
 Output ONLY valid JSON matching this schema exactly:
 {{
   "p_score": <float 0-1, Aschenbrenner probability this week>,
-  "market_regime": <"compute_constrained"|"demand_constrained"|"balanced"|"stalling">,
+  "market_regime": <"compute_constrained"|"demand_constrained"|"balanced"|"stalling"|"shipping_bottleneck"|"credit_stress">,
   "supply_demand_balance": <float, positive=demand>supply>,
   "portfolio": [
     {{"ticker": <str>, "weight": <float>, "conviction": <float 0-1>, "reasoning": <str 1-2 sentences>}}
   ],
+  "short_portfolio": [
+    {{"ticker": <str>, "weight": <float>, "conviction": <float 0-1>, "reasoning": <str 1-2 sentences>}}
+  ],
+  "net_exposure": <float, should match net_exposure_target from macro signal>,
   "signal_confidence": <float 0-1>,
   "thesis_stress": <bool>,
   "thesis_update": <str, what changed vs last run>
 }}"""
 
 
-def build_signal_context(docs: list[dict], current_portfolio: dict = None) -> str:
-    """Assemble documents into a structured prompt context organised by value chain layer."""
+def build_signal_context(
+    docs: list[dict],
+    current_portfolio: dict = None,
+    macro_signal: dict = None,
+) -> str:
+    """Assemble documents into structured prompt context organised by value chain layer."""
+    sections = []
+
+    # Prepend macro regime block if available
+    if macro_signal:
+        sc = macro_signal.get("supply_chain", {})
+        cs = macro_signal.get("cross_sector", {})
+        macro_block = (
+            "### MACRO REGIME SIGNAL [computed by quant module — treat as ground truth]\n"
+            f"Regime: {macro_signal['regime']} (confidence: {macro_signal['regime_confidence']:.2f})\n"
+            f"net_exposure_target: {macro_signal['net_exposure_target']:.2f} "
+            f"({int(macro_signal['net_exposure_target']*100)}% long / "
+            f"{int((1-macro_signal['net_exposure_target'])*100)}% short notional)\n"
+            f"Supply chain: PMI {sc.get('pmi', 'N/A')} ({sc.get('pmi_trend', 'N/A')}), "
+            f"shipping pressure {sc.get('shipping_pressure', 'N/A'):.2f}, "
+            f"semis inventory {sc.get('semis_inventory_trend', 'N/A')}\n"
+            f"Cross-sector: power→compute lead {cs.get('power_compute_lead', 0):.1f}σ, "
+            f"copper→infra {cs.get('copper_infra_lead', 0):.1f}σ, "
+            f"credit stress: {cs.get('credit_stress', False)}, "
+            f"VIX {cs.get('vix_level', 'N/A'):.1f}\n"
+            f"Notes: {macro_signal.get('notes', '')}\n\n"
+            "[Your portfolio must reflect the net_exposure_target above]\n"
+        )
+        sections.append(macro_block)
+
+    # Current portfolio context
+    if current_portfolio:
+        sorted_positions = sorted(current_portfolio.items(), key=lambda x: -x[1])
+        lines = [f"  {ticker}: {weight:.1%}" for ticker, weight in sorted_positions[:20]]
+        sections.append(
+            "### CURRENT PORTFOLIO POSITIONS\n"
+            "You currently hold these positions. Factor them into your recommendations —\n"
+            "avoid large rotations unless the signal strongly justifies it.\n"
+            + "\n".join(lines) + "\n"
+        )
+
+    # Documents by value chain layer
     by_layer = defaultdict(list)
     for doc in docs:
         layer = doc.get("value_chain_layer", "application")
         by_layer[layer].append(doc)
 
-    sections = []
     for layer in VALUE_CHAIN_LAYERS:
         layer_docs = by_layer.get(layer, [])
         if not layer_docs:
@@ -65,20 +124,7 @@ def build_signal_context(docs: list[dict], current_portfolio: dict = None) -> st
             )
         sections.append(header + "\n---\n".join(entries))
 
-    # Prepend current portfolio if available
-    portfolio_section = ""
-    if current_portfolio:
-        sorted_positions = sorted(current_portfolio.items(), key=lambda x: -x[1])
-        lines = [f"  {ticker}: {weight:.1%}" for ticker, weight in sorted_positions[:20]]
-        portfolio_section = (
-            "### CURRENT PORTFOLIO POSITIONS\n"
-            "You currently hold these positions. Factor them into your recommendations —\n"
-            "avoid large rotations unless the signal strongly justifies it.\n"
-            + "\n".join(lines)
-            + "\n"
-        )
-
-    return portfolio_section + "\n".join(sections)
+    return "\n".join(sections)
 
 
 def parse_gemini_response(text: str) -> dict:
@@ -94,12 +140,11 @@ def parse_gemini_response(text: str) -> dict:
 
 
 def apply_guardrails(output: dict, prev_weights: dict) -> dict:
-    """Apply hard constraints to Gemini portfolio output."""
-    portfolio = copy.deepcopy(output["portfolio"])
+    """Apply hard constraints to Gemini long and short portfolio output."""
+    output = copy.deepcopy(output)
 
-    # 1. Cap max weight iteratively, re-normalizing each time until all weights
-    #    are within the cap. This handles cases where normalizing pushes some
-    #    weights above MAX_STOCK_WEIGHT again.
+    # ── Long book: cap + normalize ────────────────────────────────────────
+    portfolio = output["portfolio"]
     _EPS = 1e-6
     for _ in range(50):
         for p in portfolio:
@@ -107,17 +152,23 @@ def apply_guardrails(output: dict, prev_weights: dict) -> dict:
         total = sum(p["weight"] for p in portfolio)
         if total <= 0:
             break
-        # Only normalize if more than one stock (single stock stays at capped value)
         if len(portfolio) > 1:
             for p in portfolio:
                 p["weight"] = p["weight"] / total
-        # Check convergence: all weights within cap
         if all(p["weight"] <= MAX_STOCK_WEIGHT + _EPS for p in portfolio):
             break
-
-    # Turnover cap intentionally removed — live account, unrestricted rebalancing.
-
     output["portfolio"] = portfolio
+
+    # ── Short book: cap + normalize ───────────────────────────────────────
+    short_portfolio = output.get("short_portfolio", [])
+    for p in short_portfolio:
+        p["weight"] = min(p["weight"], MAX_SHORT_WEIGHT)
+    short_total = sum(p["weight"] for p in short_portfolio)
+    if short_total > 0 and len(short_portfolio) > 1:
+        for p in short_portfolio:
+            p["weight"] = p["weight"] / short_total
+    output["short_portfolio"] = short_portfolio
+
     return output
 
 
@@ -126,21 +177,14 @@ def score_documents(
     db_path: str = str(DEFAULT_DB),
     prev_weights: Optional[dict] = None,
     current_portfolio: Optional[dict] = None,
+    macro_signal: Optional[dict] = None,
 ) -> dict:
-    """Call Gemini with assembled signal context. Returns structured signal dict.
-
-    DB persistence (insert_signal) is the caller's responsibility.
-    db_path is reserved for future per-document scoring.
-    current_portfolio: live Alpaca positions {ticker: weight}, used as Gemini context
-                       and as prev_weights baseline for guardrails if prev_weights is empty.
-    """
+    """Call Gemini with assembled signal context. Returns structured signal dict."""
     if prev_weights is None:
         prev_weights = {}
 
-    # Use live portfolio as guardrail baseline when available
     guardrail_baseline = current_portfolio if current_portfolio else prev_weights
-
-    context = build_signal_context(docs, current_portfolio=current_portfolio)
+    context = build_signal_context(docs, current_portfolio=current_portfolio, macro_signal=macro_signal)
     universe_str = ", ".join(TICKER_UNIVERSE)
     system = _SYSTEM_PROMPT.format(universe=universe_str)
 
@@ -150,35 +194,52 @@ Weight stocks that will benefit from what is being *committed to* today, not wha
 {context}
 
 [TASK]
-Output your portfolio JSON now. Remember: weights must sum to 1.0, max 10% per stock."""
+Output your portfolio JSON now. Remember: long weights sum to 1.0 (max 10%), short weights sum to 1.0 (max 8%)."""
 
     api_key = os.environ.get("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=f"{system}\n\n{user_prompt}",
-        config={"max_output_tokens": GEMINI_MAX_OUTPUT_TOKENS},
-    )
-
-    raw = parse_gemini_response(response.text)
+    last_exc = None
+    raw = None
+    raw_response_text = None
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=f"{system}\n\n{user_prompt}",
+                config={"max_output_tokens": GEMINI_MAX_OUTPUT_TOKENS},
+            )
+            raw_response_text = response.text
+            raw = parse_gemini_response(response.text)
+            break
+        except Exception as exc:
+            last_exc = exc
+            wait = 2 ** attempt
+            print(f"  Gemini call failed (attempt {attempt + 1}/3): {exc}. Retrying in {wait}s...")
+            time.sleep(wait)
+    if raw is None:
+        raise RuntimeError(f"Gemini failed after 3 attempts: {last_exc}") from last_exc
 
     guarded = apply_guardrails(raw, guardrail_baseline)
 
-    # Postcondition: guardrails must produce valid weights
     final_sum = sum(p["weight"] for p in guarded["portfolio"])
     if abs(final_sum - 1.0) > WEIGHT_SUM_TOLERANCE:
-        raise ValueError(f"Portfolio weights sum to {final_sum:.4f} after guardrails — malformed Gemini output")
+        raise ValueError(f"Long portfolio weights sum to {final_sum:.4f} after guardrails")
 
     conviction_map = {p["ticker"]: p["conviction"] for p in guarded["portfolio"]}
     reasoning_map = {p["ticker"]: p["reasoning"] for p in guarded["portfolio"]}
     weight_map = {p["ticker"]: p["weight"] for p in guarded["portfolio"]}
+    short_weight_map = {p["ticker"]: p["weight"] for p in guarded.get("short_portfolio", [])}
 
-    signal = {
+    doc_ids = [d["id"] for d in docs if "id" in d]
+
+    return {
         "p_final": guarded["p_score"],
         "stock_conviction": json.dumps(conviction_map),
         "stock_weights": json.dumps(weight_map),
         "stock_reasoning": json.dumps(reasoning_map),
+        "short_weights": json.dumps(short_weight_map) if short_weight_map else None,
+        "macro_signal": json.dumps(macro_signal) if macro_signal else None,
         "sector_tilt": json.dumps({}),
         "supply_demand_balance": guarded.get("supply_demand_balance", 0.0),
         "market_regime": guarded["market_regime"],
@@ -188,6 +249,6 @@ Output your portfolio JSON now. Remember: weights must sum to 1.0, max 10% per s
         "sources_ingested": len(docs),
         "signal_breakdown": json.dumps({}),
         "thesis_update": guarded.get("thesis_update", ""),
+        "raw_response": raw_response_text,
+        "prompt_context_doc_ids": json.dumps(doc_ids),
     }
-
-    return signal

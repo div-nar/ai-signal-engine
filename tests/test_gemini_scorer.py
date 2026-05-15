@@ -107,3 +107,102 @@ def test_score_documents_calls_gemini_and_returns_structured(tmp_path):
     assert result["market_regime"] == "compute_constrained"
     assert "NVDA" in result["stock_conviction"]
     assert result["sources_ingested"] == 3
+
+
+_MACRO_SIGNAL = {
+    "regime": "shipping_bottleneck",
+    "regime_confidence": 0.82,
+    "net_exposure_target": 0.55,
+    "supply_chain": {
+        "shipping_pressure": 0.74, "semis_inventory_trend": "drawing_down",
+        "pmi": 49.2, "pmi_trend": "contracting",
+    },
+    "cross_sector": {
+        "power_compute_lead": 1.3, "copper_infra_lead": -0.2,
+        "credit_stress": False, "vix_level": 18.4,
+    },
+    "notes": "Freight pressure elevated but credit clean.",
+}
+
+VALID_GEMINI_OUTPUT_V2 = {
+    "p_score": 0.91,
+    "market_regime": "shipping_bottleneck",
+    "supply_demand_balance": 0.3,
+    "portfolio": [
+        {"ticker": "NVDA", "weight": 0.15, "conviction": 0.95, "reasoning": "GPU supply tight."},
+        {"ticker": "MU",   "weight": 0.12, "conviction": 0.90, "reasoning": "HBM demand rising."},
+        {"ticker": "TSM",  "weight": 0.10, "conviction": 0.88, "reasoning": "Advanced node full."},
+        {"ticker": "VRT",  "weight": 0.10, "conviction": 0.85, "reasoning": "Cooling bottleneck."},
+        {"ticker": "CEG",  "weight": 0.10, "conviction": 0.83, "reasoning": "Power contracts."},
+        {"ticker": "AVGO", "weight": 0.09, "conviction": 0.80, "reasoning": "Custom ASIC ramp."},
+        {"ticker": "AMZN", "weight": 0.08, "conviction": 0.78, "reasoning": "AWS capex cycle."},
+        {"ticker": "MSFT", "weight": 0.08, "conviction": 0.75, "reasoning": "Azure AI revenue."},
+        {"ticker": "META", "weight": 0.08, "conviction": 0.72, "reasoning": "Llama infra spend."},
+        {"ticker": "PWR",  "weight": 0.10, "conviction": 0.70, "reasoning": "Grid build."},
+    ],
+    "short_portfolio": [
+        {"ticker": "AMD",  "weight": 0.40, "conviction": 0.42, "reasoning": "Lower GPU conviction vs NVDA."},
+        {"ticker": "QCOM", "weight": 0.35, "conviction": 0.38, "reasoning": "Mobile-heavy, low AI infra exposure."},
+        {"ticker": "ON",   "weight": 0.25, "conviction": 0.35, "reasoning": "EV exposure, not AI buildout."},
+    ],
+    "net_exposure": 0.54,
+    "signal_confidence": 0.88,
+    "thesis_stress": False,
+    "thesis_update": "Shipping elevated — rotate to bottleneck names.",
+}
+
+
+def test_build_signal_context_includes_macro_block():
+    context = build_signal_context(SAMPLE_DOCS, macro_signal=_MACRO_SIGNAL)
+    assert "MACRO REGIME SIGNAL" in context
+    assert "shipping_bottleneck" in context
+    assert "net_exposure_target: 0.55" in context
+    assert "Freight pressure elevated" in context
+
+
+def test_build_signal_context_macro_precedes_documents():
+    context = build_signal_context(SAMPLE_DOCS, macro_signal=_MACRO_SIGNAL)
+    macro_pos = context.index("MACRO REGIME SIGNAL")
+    doc_pos = context.index("ASML Q1 Backlog Surge")
+    assert macro_pos < doc_pos
+
+
+def test_apply_guardrails_caps_short_weight():
+    output = dict(VALID_GEMINI_OUTPUT_V2)
+    output["short_portfolio"] = [
+        {"ticker": "AMD", "weight": 0.50, "conviction": 0.4, "reasoning": "x"},
+    ]
+    guarded = apply_guardrails(output, prev_weights={})
+    amd = next(p for p in guarded["short_portfolio"] if p["ticker"] == "AMD")
+    assert amd["weight"] <= 0.08
+
+
+def test_apply_guardrails_short_book_sums_to_one():
+    output = dict(VALID_GEMINI_OUTPUT_V2)
+    guarded = apply_guardrails(output, prev_weights={})
+    total = sum(p["weight"] for p in guarded["short_portfolio"])
+    assert abs(total - 1.0) < 0.01
+
+
+def test_score_documents_returns_short_weights(tmp_path):
+    from db import init_db
+    db_path = str(tmp_path / "test.db")
+    init_db(db_path)
+
+    mock_response = MagicMock()
+    mock_response.text = json.dumps(VALID_GEMINI_OUTPUT_V2)
+
+    with patch("scoring.gemini_scorer.genai.Client") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        result = score_documents(
+            docs=SAMPLE_DOCS, db_path=db_path, prev_weights={},
+            macro_signal=_MACRO_SIGNAL,
+        )
+
+    assert result["short_weights"] is not None
+    short = json.loads(result["short_weights"])
+    assert "AMD" in short
+    assert abs(sum(short.values()) - 1.0) < 0.01
