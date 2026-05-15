@@ -2,6 +2,8 @@
 import json
 import pytest
 from pathlib import Path
+from unittest.mock import patch, MagicMock
+from datetime import datetime, timezone
 from export import export_signal
 
 
@@ -22,8 +24,13 @@ SAMPLE_SIGNAL = {
 }
 
 
+_MONDAY = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)  # 2024-01-01 is a Monday
+
+
 def test_export_signal_writes_three_files(tmp_path):
-    export_signal(SAMPLE_SIGNAL, output_dir=str(tmp_path))
+    with patch("export.datetime") as mock_dt:
+        mock_dt.now.return_value = _MONDAY
+        export_signal(SAMPLE_SIGNAL, output_dir=str(tmp_path))
 
     assert (tmp_path / "p_estimate.json").exists()
     assert (tmp_path / "stock_signals.json").exists()
@@ -31,7 +38,9 @@ def test_export_signal_writes_three_files(tmp_path):
 
 
 def test_export_signal_p_estimate_content(tmp_path):
-    export_signal(SAMPLE_SIGNAL, output_dir=str(tmp_path))
+    with patch("export.datetime") as mock_dt:
+        mock_dt.now.return_value = _MONDAY
+        export_signal(SAMPLE_SIGNAL, output_dir=str(tmp_path))
     data = json.loads((tmp_path / "p_estimate.json").read_text())
     assert data["p"] == 0.82
     assert "generated_at" in data
@@ -53,3 +62,31 @@ def test_export_signal_market_regime_content(tmp_path):
     assert data["signal_confidence"] == 0.76
     assert data["thesis_stress"] is False
     assert "generated_at" in data
+
+
+import json as _json
+
+SAMPLE_SIGNAL_V2 = {
+    **SAMPLE_SIGNAL,
+    "short_weights": _json.dumps({"AMD": 0.55, "QCOM": 0.45}),
+    "macro_signal": _json.dumps({
+        "regime": "shipping_bottleneck",
+        "net_exposure_target": 0.55,
+        "notes": "Freight elevated.",
+    }),
+}
+
+
+def test_export_includes_short_weights(tmp_path):
+    export_signal(SAMPLE_SIGNAL_V2, output_dir=str(tmp_path))
+    data = _json.loads((tmp_path / "stock_signals.json").read_text())
+    assert "short_weights" in data
+    assert data["short_weights"]["AMD"] == pytest.approx(0.55)
+
+
+def test_export_includes_macro_signal(tmp_path):
+    export_signal(SAMPLE_SIGNAL_V2, output_dir=str(tmp_path))
+    data = _json.loads((tmp_path / "market_regime.json").read_text())
+    assert "macro_signal" in data
+    assert data["macro_signal"]["regime"] == "shipping_bottleneck"
+    assert data["macro_signal"]["net_exposure_target"] == pytest.approx(0.55)

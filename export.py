@@ -14,16 +14,20 @@ def export_signal(signal: dict, output_dir: str = str(BACKTEST_DATA_DIR)) -> Non
     now = datetime.now(timezone.utc).isoformat()
 
     conviction = json.loads(signal["stock_conviction"])
-    weights = json.loads(signal.get("stock_weights", "{}"))
-    reasoning = json.loads(signal["stock_reasoning"])
+    weights = json.loads(signal.get("stock_weights") or "{}")
+    reasoning = json.loads(signal.get("stock_reasoning") or "{}")
+    short_weights = json.loads(signal.get("short_weights") or "{}")
+    macro_signal_data = json.loads(signal.get("macro_signal") or "{}")
     signal_breakdown = json.loads(signal["signal_breakdown"])
 
-    # 1. p_estimate.json — consumed by strategy.py
-    p_file = output / "p_estimate.json"
-    p_file.write_text(json.dumps({
-        "p": signal["p_final"],
-        "generated_at": now,
-    }, indent=2))
+    # 1. p_estimate.json — consumed by strategy.py (updated Mondays only)
+    if datetime.now(timezone.utc).weekday() == 0:
+        p_file = output / "p_estimate.json"
+        p_file.write_text(json.dumps({
+            "p": signal["p_final"],
+            "generated_at": now,
+        }, indent=2))
+        print(f"  p_estimate.json updated (Monday)")
 
     # 2. stock_signals.json — consumed by strategy.py for conviction blending
     stock_signals_file = output / "stock_signals.json"
@@ -31,6 +35,7 @@ def export_signal(signal: dict, output_dir: str = str(BACKTEST_DATA_DIR)) -> Non
         "generated_at": now,
         "conviction": conviction,
         "weights": weights,
+        "short_weights": short_weights,
         "reasoning": reasoning,
     }, indent=2))
 
@@ -45,6 +50,7 @@ def export_signal(signal: dict, output_dir: str = str(BACKTEST_DATA_DIR)) -> Non
         "thesis_stress": bool(signal["thesis_stress"]),
         "thesis_update": signal["thesis_update"],
         "signal_breakdown": signal_breakdown,
+        "macro_signal": macro_signal_data,
     }, indent=2))
 
     print(f"Exported signals to {output}/")
