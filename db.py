@@ -31,21 +31,31 @@ def init_db(db_path: str = str(DEFAULT_DB)) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS signals (
-            id                    INTEGER PRIMARY KEY,
-            computed_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            p_final               REAL,
-            stock_conviction      TEXT,
-            sector_tilt           TEXT,
-            supply_demand_balance REAL,
-            market_regime         TEXT,
-            signal_confidence     REAL,
-            thesis_stress         BOOLEAN,
-            signal_age_days       INTEGER,
-            sources_ingested      INTEGER,
-            signal_breakdown      TEXT,
-            thesis_update         TEXT
+            id                       INTEGER PRIMARY KEY,
+            computed_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            p_final                  REAL,
+            stock_conviction         TEXT,
+            stock_weights            TEXT,
+            stock_reasoning          TEXT,
+            sector_tilt              TEXT,
+            supply_demand_balance    REAL,
+            market_regime            TEXT,
+            signal_confidence        REAL,
+            thesis_stress            BOOLEAN,
+            signal_age_days          INTEGER,
+            sources_ingested         INTEGER,
+            signal_breakdown         TEXT,
+            thesis_update            TEXT,
+            raw_response             TEXT,
+            prompt_context_doc_ids   TEXT
         );
     """)
+    # Migration: add reasoning-trace columns to existing signals tables.
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(signals)").fetchall()}
+    for col in ("stock_weights", "stock_reasoning", "raw_response", "prompt_context_doc_ids",
+                "short_weights", "macro_signal"):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE signals ADD COLUMN {col} TEXT")
     conn.commit()
     conn.close()
 
@@ -113,13 +123,17 @@ def insert_signal(db_path: str, data: dict) -> int:
     conn = sqlite3.connect(db_path)
     cursor = conn.execute(
         """INSERT INTO signals
-           (p_final, stock_conviction, sector_tilt, supply_demand_balance,
-            market_regime, signal_confidence, thesis_stress, signal_age_days,
-            sources_ingested, signal_breakdown, thesis_update)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (p_final, stock_conviction, stock_weights, stock_reasoning,
+            sector_tilt, supply_demand_balance, market_regime, signal_confidence,
+            thesis_stress, signal_age_days, sources_ingested, signal_breakdown,
+            thesis_update, raw_response, prompt_context_doc_ids,
+            short_weights, macro_signal)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             data["p_final"],
             data["stock_conviction"],
+            data.get("stock_weights"),
+            data.get("stock_reasoning"),
             data["sector_tilt"],
             data["supply_demand_balance"],
             data["market_regime"],
@@ -129,6 +143,10 @@ def insert_signal(db_path: str, data: dict) -> int:
             data["sources_ingested"],
             data["signal_breakdown"],
             data["thesis_update"],
+            data.get("raw_response"),
+            data.get("prompt_context_doc_ids"),
+            data.get("short_weights"),
+            data.get("macro_signal"),
         ),
     )
     conn.commit()

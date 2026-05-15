@@ -6,12 +6,20 @@ ROOT = Path(__file__).parent
 DB_PATH = str(ROOT / "signals.db")
 BACKTEST_DATA_DIR = ROOT.parent / "ai-portfolio-backtest" / "data"
 
-# ── SemiAnalysis RSS ───────────────────────────────────────────────────────────
+# ── RSS feeds ─────────────────────────────────────────────────────────────────
+# Mix of supply-side (semis/infra deep-dives) and demand-side (hyperscaler &
+# AI-platform strategy) sources. Layer tags drive how the scorer organises the
+# context it shows the LLM (see VALUE_CHAIN_LAYERS).
 RSS_FEEDS = [
-    {
-        "url": "https://www.semianalysis.com/feed",
-        "value_chain_layer": "platform",
-    }
+    # Supply-side: semis / infra deep-dives
+    {"url": "https://www.semianalysis.com/feed",        "value_chain_layer": "compute"},
+    {"url": "https://www.fabricatedknowledge.com/feed", "value_chain_layer": "compute"},
+    # Demand-side: hyperscaler & AI-platform strategy
+    {"url": "https://stratechery.com/feed/",            "value_chain_layer": "platform"},
+    {"url": "https://www.platformer.news/feed",         "value_chain_layer": "platform"},
+    {"url": "https://tanay.substack.com/feed",          "value_chain_layer": "application"},
+    {"url": "https://www.latent.space/feed",            "value_chain_layer": "application"},
+    {"url": "https://importai.substack.com/feed",       "value_chain_layer": "application"},
 ]
 
 # ── arXiv ─────────────────────────────────────────────────────────────────────
@@ -72,3 +80,5 @@ MAX_STOCK_WEIGHT = 0.10
 MIN_HEDGE_SECTOR_WEIGHT = 0.02
 MAX_TURNOVER_VS_PREV = 0.20
 WEIGHT_SUM_TOLERANCE = 0.01
+MAX_SHORT_WEIGHT = 0.08
+MAX_GROSS_EXPOSURE = 1.80

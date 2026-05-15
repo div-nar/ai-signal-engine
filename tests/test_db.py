@@ -1,4 +1,5 @@
 # ai-signal-engine/tests/test_db.py
+import json
 import sqlite3
 import pytest
 from db import init_db, insert_document, get_unscored_documents, mark_scored, insert_signal
@@ -74,3 +75,38 @@ def test_insert_signal_roundtrip(db_path):
         "thesis_update": "ASML backlog up 18% QoQ",
     })
     assert signal_id > 0
+
+
+def test_signals_table_has_short_weights_column(db_path):
+    conn = sqlite3.connect(db_path)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(signals)").fetchall()}
+    conn.close()
+    assert "short_weights" in cols
+    assert "macro_signal" in cols
+
+
+def test_insert_signal_roundtrip_with_short_weights(db_path):
+    signal_id = insert_signal(db_path, {
+        "p_final": 0.91,
+        "stock_conviction": '{"NVDA": 0.95}',
+        "stock_weights": '{"NVDA": 1.0}',
+        "stock_reasoning": '{"NVDA": "test"}',
+        "short_weights": '{"AMD": 0.6, "QCOM": 0.4}',
+        "macro_signal": '{"regime": "shipping_bottleneck", "net_exposure_target": 0.55}',
+        "sector_tilt": '{}',
+        "supply_demand_balance": 0.3,
+        "market_regime": "shipping_bottleneck",
+        "signal_confidence": 0.88,
+        "thesis_stress": False,
+        "signal_age_days": 0,
+        "sources_ingested": 50,
+        "signal_breakdown": '{}',
+        "thesis_update": "test",
+    })
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT short_weights, macro_signal FROM signals WHERE id = ?", (signal_id,)
+    ).fetchone()
+    conn.close()
+    assert json.loads(row[0]) == {"AMD": 0.6, "QCOM": 0.4}
+    assert json.loads(row[1])["regime"] == "shipping_bottleneck"
