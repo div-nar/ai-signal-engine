@@ -43,7 +43,11 @@ def ingest_arxiv(
     db_path: str = str(DEFAULT_DB),
 ) -> int:
     """Fetch arXiv papers and insert new ones. Returns count of new docs."""
-    papers = fetch_arxiv_papers(categories, max_results)
+    try:
+        papers = fetch_arxiv_papers(categories, max_results)
+    except Exception as e:
+        print(f"  WARNING: arXiv ingestion failed ({e}) — skipping")
+        return 0
     count = 0
     for p in papers:
         result = insert_document(

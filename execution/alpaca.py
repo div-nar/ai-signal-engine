@@ -80,9 +80,18 @@ def rebalance(long_weights: dict, short_weights: dict, net_exposure_target: floa
     long_targets = {t: w * long_notional for t, w in long_weights.items()}
     short_targets = {t: w * short_notional for t, w in short_weights.items()}
 
+    # Cancel all open orders before rebalancing to free held-for-orders qty
+    try:
+        client.cancel_orders()
+        time.sleep(1.0)
+    except Exception as e:
+        print(f"  WARNING: Could not cancel open orders: {e}")
+
     current = client.get_all_positions()
     current_longs = {p.symbol: float(p.market_value) for p in current if float(p.market_value) >= 0}
     current_shorts = {p.symbol: abs(float(p.market_value)) for p in current if float(p.market_value) < 0}
+    # Price map for whole-share short orders (fractional short selling not supported)
+    price_map = {p.symbol: abs(float(p.market_value)) / abs(float(p.qty)) for p in current if float(p.qty) != 0}
 
     def _submit(symbol, side, notional):
         if notional < _MIN_ORDER_VALUE:
@@ -93,24 +102,35 @@ def rebalance(long_weights: dict, short_weights: dict, net_exposure_target: floa
             side=side,
             time_in_force=TimeInForce.DAY,
         )
-        client.submit_order(req)
+        try:
+            client.submit_order(req)
+        except Exception as e:
+            print(f"  WARNING: Order failed {side.value} {symbol} ${notional:,.0f}: {e}")
         time.sleep(_ORDER_DELAY_S)
 
+    def _close(symbol):
+        # Use close_position so Alpaca handles exact qty — avoids fractional rounding errors
+        try:
+            client.close_position(symbol)
+            time.sleep(_ORDER_DELAY_S)
+        except Exception as e:
+            print(f"  WARNING: Could not close {symbol}: {e}")
+
     # Step 1: Close stale positions not in either target book
-    for sym, val in current_longs.items():
+    for sym in list(current_longs):
         if sym not in long_targets:
-            _submit(sym, OrderSide.SELL, val)
-    for sym, val in current_shorts.items():
+            _close(sym)
+    for sym in list(current_shorts):
         if sym not in short_targets:
-            _submit(sym, OrderSide.BUY, val)
+            _close(sym)
 
     # Step 2: Close any side conflicts (currently long but now short, and vice versa)
     for sym in short_targets:
         if sym in current_longs:
-            _submit(sym, OrderSide.SELL, current_longs[sym])
+            _close(sym)
     for sym in long_targets:
         if sym in current_shorts:
-            _submit(sym, OrderSide.BUY, current_shorts[sym])
+            _close(sym)
 
     # Step 3: Open/adjust longs
     for sym, target_val in long_targets.items():
@@ -121,12 +141,24 @@ def rebalance(long_weights: dict, short_weights: dict, net_exposure_target: floa
         elif diff < -_MIN_ORDER_VALUE:
             _submit(sym, OrderSide.SELL, abs(diff))
 
-    # Step 4: Open/adjust shorts
+    # Step 4: Open/adjust shorts — use whole-share qty (fractional short selling not supported)
     for sym, target_val in short_targets.items():
         current_val = current_shorts.get(sym, 0.0)
         diff = target_val - current_val
         if diff > _MIN_ORDER_VALUE:
-            _submit(sym, OrderSide.SELL, diff)
+            price = price_map.get(sym)
+            if price and price > 0:
+                qty = int(diff / price)  # whole shares only
+                if qty > 0:
+                    try:
+                        req = MarketOrderRequest(symbol=sym, qty=qty, side=OrderSide.SELL, time_in_force=TimeInForce.DAY)
+                        client.submit_order(req)
+                    except Exception as e:
+                        print(f"  WARNING: Short order failed {sym} {qty}sh: {e}")
+                    time.sleep(_ORDER_DELAY_S)
+            else:
+                # New short position — skip, no price reference available
+                print(f"  INFO: Skipping new short {sym} (no price reference — will open on next run)")
         elif diff < -_MIN_ORDER_VALUE:
             _submit(sym, OrderSide.BUY, abs(diff))
 
