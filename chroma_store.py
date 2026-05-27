@@ -15,13 +15,18 @@ def init_chroma(path: str) -> chromadb.ClientAPI:
 
 def _embed(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
     api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY environment variable is not set")
     gc = genai.Client(api_key=api_key)
     result = gc.models.embed_content(
         model="models/text-embedding-004",
         contents=text,
         config={"task_type": task_type},
     )
-    return list(result.embeddings[0].values)
+    try:
+        return list(result.embeddings[0].values)
+    except (IndexError, AttributeError) as e:
+        raise RuntimeError(f"Unexpected embedding response format: {e}")
 
 
 def upsert_research_doc(
@@ -116,29 +121,39 @@ def run_chroma_backfill(
         return
     print("  ChromaDB: running one-time backfill...")
     for doc in all_docs:
+        doc_id = doc.get("id")
+        if not doc_id:
+            continue
         text = f"{doc.get('title', '')} {doc.get('content', '')}".strip()
+        if not text:
+            continue
         metadata = {
             "source": doc.get("source", ""),
             "ticker_mentions": "",
             "ingested_at": str(doc.get("ingested_at", "")),
             "value_chain_layer": doc.get("value_chain_layer", "application"),
         }
-        upsert_research_doc(client, str(doc["id"]), text, metadata)
+        upsert_research_doc(client, str(doc_id), text, metadata)
     for sig in all_signals:
+        sig_id = sig.get("id")
+        if not sig_id:
+            continue
         thesis = sig.get("thesis_update") or ""
         notes = ""
         if sig.get("macro_signal"):
             import json as _json
             try:
                 notes = _json.loads(sig["macro_signal"]).get("notes", "")
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  WARNING: could not parse macro_signal JSON: {e}")
         text = f"{thesis} {notes}".strip()
+        if not text:
+            continue
         metadata = {
             "regime": sig.get("market_regime", ""),
             "p_final": float(sig.get("p_final") or 0.0),
             "computed_at": str(sig.get("computed_at", "")),
         }
-        upsert_signal_record(client, f"signal_{sig['id']}", text, metadata)
+        upsert_signal_record(client, f"signal_{sig_id}", text, metadata)
     Path(sentinel_path).write_text("done")
     print(f"  ChromaDB: backfill complete — {len(all_docs)} docs, {len(all_signals)} signals")
