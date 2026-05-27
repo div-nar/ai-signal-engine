@@ -140,12 +140,6 @@ VALID_GEMINI_OUTPUT_V2 = {
         {"ticker": "META", "weight": 0.08, "conviction": 0.72, "reasoning": "Llama infra spend."},
         {"ticker": "PWR",  "weight": 0.10, "conviction": 0.70, "reasoning": "Grid build."},
     ],
-    "short_portfolio": [
-        {"ticker": "AMD",  "weight": 0.40, "conviction": 0.42, "reasoning": "Lower GPU conviction vs NVDA."},
-        {"ticker": "QCOM", "weight": 0.35, "conviction": 0.38, "reasoning": "Mobile-heavy, low AI infra exposure."},
-        {"ticker": "ON",   "weight": 0.25, "conviction": 0.35, "reasoning": "EV exposure, not AI buildout."},
-    ],
-    "net_exposure": 0.54,
     "signal_confidence": 0.88,
     "thesis_stress": False,
     "thesis_update": "Shipping elevated — rotate to bottleneck names.",
@@ -167,24 +161,7 @@ def test_build_signal_context_macro_precedes_documents():
     assert macro_pos < doc_pos
 
 
-def test_apply_guardrails_caps_short_weight():
-    output = dict(VALID_GEMINI_OUTPUT_V2)
-    output["short_portfolio"] = [
-        {"ticker": "AMD", "weight": 0.50, "conviction": 0.4, "reasoning": "x"},
-    ]
-    guarded = apply_guardrails(output, prev_weights={})
-    amd = next(p for p in guarded["short_portfolio"] if p["ticker"] == "AMD")
-    assert amd["weight"] <= 0.08
-
-
-def test_apply_guardrails_short_book_sums_to_one():
-    output = dict(VALID_GEMINI_OUTPUT_V2)
-    guarded = apply_guardrails(output, prev_weights={})
-    total = sum(p["weight"] for p in guarded["short_portfolio"])
-    assert abs(total - 1.0) < 0.01
-
-
-def test_score_documents_returns_short_weights(tmp_path):
+def test_score_documents_short_weights_is_none(tmp_path):
     from db import init_db
     db_path = str(tmp_path / "test.db")
     init_db(db_path)
@@ -202,7 +179,41 @@ def test_score_documents_returns_short_weights(tmp_path):
             macro_signal=_MACRO_SIGNAL,
         )
 
-    assert result["short_weights"] is not None
-    short = json.loads(result["short_weights"])
-    assert "AMD" in short
-    assert abs(sum(short.values()) - 1.0) < 0.01
+    assert result["short_weights"] is None
+
+
+def test_score_documents_queries_chroma_not_sqlite(tmp_path):
+    """When chroma_client is provided, scorer must call chroma query."""
+    import json
+    import pytest
+    from unittest.mock import patch, MagicMock
+    from scoring.gemini_scorer import score_documents
+
+    chroma_client = MagicMock()
+
+    mock_research = [
+        {"id": "1", "title": "NVDA Q1", "content": "NVDA beats", "source": "rss",
+         "ticker_mentions": "NVDA", "ingested_at": "2026-05-01", "value_chain_layer": "compute"},
+    ]
+    mock_signals = [
+        {"id": "signal_1", "text": "Thesis intact", "regime": "compute_constrained",
+         "p_final": 0.88, "computed_at": "2026-05-01"},
+    ]
+
+    valid_output = {
+        "p_score": 0.88, "market_regime": "compute_constrained",
+        "supply_demand_balance": 0.3,
+        "portfolio": [{"ticker": "NVDA", "weight": 0.10, "conviction": 0.9, "reasoning": "GPU demand"}],
+        "signal_confidence": 0.8, "thesis_stress": False, "thesis_update": "stable",
+    }
+
+    with patch("chroma_store.query_research_docs", return_value=mock_research) as mock_q_docs, \
+         patch("chroma_store.query_signal_records", return_value=mock_signals) as mock_q_sigs, \
+         patch("chroma_store._embed", return_value=[0.1]*768), \
+         patch("scoring.gemini_scorer.genai") as mock_genai:
+        mock_genai.Client.return_value.models.generate_content.return_value.text = json.dumps(valid_output)
+        result = score_documents(docs=[], chroma_client=chroma_client)
+
+    mock_q_docs.assert_called_once()
+    mock_q_sigs.assert_called_once()
+    assert result["p_final"] == pytest.approx(0.88)

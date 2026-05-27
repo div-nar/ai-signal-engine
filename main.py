@@ -13,20 +13,23 @@ Prerequisites:
 """
 import argparse
 import json
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from config import (
-    DB_PATH, RSS_FEEDS, ARXIV_CATEGORIES, ARXIV_MAX_RESULTS,
+    DB_PATH, RSS_FEEDS, HF_PAPERS_MAX_RESULTS,
     EDGAR_TICKERS,
 )
-from db import init_db, get_unscored_documents, get_recent_documents, mark_scored, insert_signal
+from db import init_db, get_unscored_documents, get_recent_documents, mark_scored, insert_signal, get_all_documents, get_all_signals
 from ingestion.rss import ingest_rss
-from ingestion.arxiv import ingest_arxiv
+from ingestion.huggingface_papers import ingest_hf_papers
 from ingestion.transcripts import ingest_edgar
 from macro.regime import compute_macro_signal
 from scoring.gemini_scorer import score_documents
 from execution.alpaca import get_alpaca_positions, rebalance
 from export import export_signal
+from chroma_store import init_chroma, run_chroma_backfill, upsert_signal_record
 
 
 def get_prev_weights(db_path: str) -> dict:
@@ -55,17 +58,26 @@ def main():
     # 1. Init DB
     init_db(DB_PATH)
 
+    # Init ChromaDB and run one-time backfill if needed
+    chroma_path = str(Path(__file__).parent / "data" / "chroma")
+    sentinel_path = str(Path(__file__).parent / "data" / "chroma_backfill_done")
+    Path(chroma_path).mkdir(parents=True, exist_ok=True)
+    chroma_client = init_chroma(chroma_path)
+    all_docs = get_all_documents(DB_PATH)
+    all_sigs = get_all_signals(DB_PATH)
+    run_chroma_backfill(chroma_client, all_docs, all_sigs, sentinel_path)
+
     # 2. Ingest
     print("\n--- Ingestion ---")
     total_new = 0
     for feed in RSS_FEEDS:
-        n = ingest_rss(feed["url"], feed["value_chain_layer"], DB_PATH)
+        n = ingest_rss(feed["url"], feed["value_chain_layer"], DB_PATH, chroma_client=chroma_client)
         print(f"  RSS [{feed['value_chain_layer']}]: {n} new documents")
         total_new += n
-    n = ingest_arxiv(ARXIV_CATEGORIES, ARXIV_MAX_RESULTS, DB_PATH)
-    print(f"  arXiv: {n} new documents")
+    n = ingest_hf_papers(HF_PAPERS_MAX_RESULTS, DB_PATH, chroma_client=chroma_client)
+    print(f"  HuggingFace Papers: {n} new documents")
     total_new += n
-    n = ingest_edgar(EDGAR_TICKERS, max_per_ticker=3, db_path=DB_PATH)
+    n = ingest_edgar(EDGAR_TICKERS, max_per_ticker=3, db_path=DB_PATH, chroma_client=chroma_client)
     print(f"  EDGAR: {n} new documents")
     total_new += n
     print(f"\nTotal new documents: {total_new}")
@@ -95,9 +107,6 @@ def main():
     if current_portfolio:
         top = sorted(current_portfolio.items(), key=lambda x: -x[1])[:5]
         print(f"  {len(current_portfolio)} long positions | top: " + ", ".join(f"{t} {w:.1%}" for t, w in top))
-    if positions["shorts"]:
-        top_s = sorted(positions["shorts"].items(), key=lambda x: -x[1])[:3]
-        print(f"  {len(positions['shorts'])} short positions | top: " + ", ".join(f"{t} {w:.1%}" for t, w in top_s))
 
     # 5. Score
     print(f"\n--- Scoring {len(unscored)} documents via Gemini ---")
@@ -108,12 +117,30 @@ def main():
         prev_weights=prev_weights,
         current_portfolio=current_portfolio,
         macro_signal=macro_signal,
+        chroma_client=chroma_client,
     )
 
     # 6. Persist
     doc_ids = [d["id"] for d in unscored]
     mark_scored(DB_PATH, doc_ids)
-    insert_signal(DB_PATH, signal)
+    signal_id = insert_signal(DB_PATH, signal)
+    thesis = signal.get("thesis_update", "")
+    notes = ""
+    if signal.get("macro_signal"):
+        try:
+            notes = json.loads(signal["macro_signal"]).get("notes", "")
+        except Exception:
+            pass
+    upsert_signal_record(
+        chroma_client,
+        f"signal_{signal_id}",
+        f"{thesis} {notes}".strip(),
+        {
+            "regime": signal["market_regime"],
+            "p_final": float(signal["p_final"]),
+            "computed_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
     print(f"  p={signal['p_final']:.3f} | regime={signal['market_regime']} | confidence={signal['signal_confidence']:.2f}")
     print(f"  {signal['thesis_update']}")
 
@@ -124,10 +151,8 @@ def main():
 
     print("\n--- Executing Rebalance ---")
     long_weights = json.loads(signal.get("stock_weights") or "{}")
-    short_weights = json.loads(signal.get("short_weights") or "{}")
     rebalance(
         long_weights=long_weights,
-        short_weights=short_weights,
         net_exposure_target=macro_signal["net_exposure_target"],
     )
 

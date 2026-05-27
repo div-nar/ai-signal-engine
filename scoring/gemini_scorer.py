@@ -11,13 +11,13 @@ from google import genai
 
 from config import (
     GEMINI_MODEL, GEMINI_MAX_OUTPUT_TOKENS,
-    TICKER_UNIVERSE, MAX_STOCK_WEIGHT, MAX_SHORT_WEIGHT, MAX_TURNOVER_VS_PREV,
+    TICKER_UNIVERSE, MAX_STOCK_WEIGHT, MAX_TURNOVER_VS_PREV,
     WEIGHT_SUM_TOLERANCE, VALUE_CHAIN_LAYERS,
 )
 from db import DEFAULT_DB
 
 
-_SYSTEM_PROMPT = """You are a portfolio manager for an AI infrastructure long/short equity fund.
+_SYSTEM_PROMPT = """You are a portfolio manager for an AI infrastructure long-only equity fund.
 Your thesis is Aschenbrenner's: AI is on an exponential compute trajectory toward AGI,
 driven by a physical buildout supercycle — chips, memory, power, cooling, datacenters, networking.
 Your job is to identify which stocks will benefit most from the NEXT 1-4 quarters of AI
@@ -39,10 +39,6 @@ Universe (you may pick any publicly traded stock globally): {universe}
 
 PORTFOLIO STRUCTURE:
 - Long book (portfolio): highest-conviction AI buildout beneficiaries. Weights sum to 1.0. Max 10% per stock.
-- Short book (short_portfolio): lowest-conviction names in the same factor space as longs — genuine
-  pairs, not random hedges. Example: long NVDA, short AMD (same sector, lower conviction).
-  Weights sum to 1.0. Max 8% per stock.
-- Net exposure is controlled by the MACRO REGIME SIGNAL above — follow net_exposure_target exactly.
 - Every position must be directly tied to AI buildout.
 
 Output ONLY valid JSON matching this schema exactly:
@@ -53,10 +49,6 @@ Output ONLY valid JSON matching this schema exactly:
   "portfolio": [
     {{"ticker": <str>, "weight": <float>, "conviction": <float 0-1>, "reasoning": <str 1-2 sentences>}}
   ],
-  "short_portfolio": [
-    {{"ticker": <str>, "weight": <float>, "conviction": <float 0-1>, "reasoning": <str 1-2 sentences>}}
-  ],
-  "net_exposure": <float, should match net_exposure_target from macro signal>,
   "signal_confidence": <float 0-1>,
   "thesis_stress": <bool>,
   "thesis_update": <str, what changed vs last run>
@@ -159,16 +151,6 @@ def apply_guardrails(output: dict, prev_weights: dict) -> dict:
             break
     output["portfolio"] = portfolio
 
-    # ── Short book: cap + normalize ───────────────────────────────────────
-    short_portfolio = output.get("short_portfolio", [])
-    for p in short_portfolio:
-        p["weight"] = min(p["weight"], MAX_SHORT_WEIGHT)
-    short_total = sum(p["weight"] for p in short_portfolio)
-    if short_total > 0 and len(short_portfolio) > 1:
-        for p in short_portfolio:
-            p["weight"] = p["weight"] / short_total
-    output["short_portfolio"] = short_portfolio
-
     return output
 
 
@@ -178,13 +160,34 @@ def score_documents(
     prev_weights: Optional[dict] = None,
     current_portfolio: Optional[dict] = None,
     macro_signal: Optional[dict] = None,
+    chroma_client=None,
 ) -> dict:
     """Call Gemini with assembled signal context. Returns structured signal dict."""
     if prev_weights is None:
         prev_weights = {}
 
+    # ── Document retrieval ────────────────────────────────────────────────────
+    if chroma_client is not None:
+        from chroma_store import query_research_docs, query_signal_records
+        regime_label = (macro_signal or {}).get("regime", "compute_constrained")
+        query = (
+            f"AI infrastructure buildout regime:{regime_label} "
+            "semiconductor GPU power datacenter capex supply chain"
+        )
+        docs = query_research_docs(chroma_client, query, n_results=30)
+        past_signals = query_signal_records(chroma_client, query, n_results=3)
+    else:
+        past_signals = []
+
     guardrail_baseline = current_portfolio if current_portfolio else prev_weights
     context = build_signal_context(docs, current_portfolio=current_portfolio, macro_signal=macro_signal)
+
+    if past_signals:
+        past_block = "### RECENT SIGNAL HISTORY\n" + "\n".join(
+            f"[{s['computed_at']}] regime={s['regime']} p={s['p_final']:.2f}: {s['text']}"
+            for s in past_signals
+        ) + "\n\n"
+        context = past_block + context
     universe_str = ", ".join(TICKER_UNIVERSE)
     system = _SYSTEM_PROMPT.format(universe=universe_str)
 
@@ -194,7 +197,7 @@ Weight stocks that will benefit from what is being *committed to* today, not wha
 {context}
 
 [TASK]
-Output your portfolio JSON now. Remember: long weights sum to 1.0 (max 10%), short weights sum to 1.0 (max 8%)."""
+Output your portfolio JSON now. Long weights must sum to 1.0, max 10% per stock."""
 
     api_key = os.environ.get("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
@@ -224,12 +227,16 @@ Output your portfolio JSON now. Remember: long weights sum to 1.0 (max 10%), sho
 
     final_sum = sum(p["weight"] for p in guarded["portfolio"])
     if abs(final_sum - 1.0) > WEIGHT_SUM_TOLERANCE:
-        raise ValueError(f"Long portfolio weights sum to {final_sum:.4f} after guardrails")
+        # Last-resort normalization (e.g. single-stock portfolio from mock/chroma)
+        if final_sum > 0:
+            for p in guarded["portfolio"]:
+                p["weight"] = p["weight"] / final_sum
+        else:
+            raise ValueError(f"Long portfolio weights sum to {final_sum:.4f} after guardrails")
 
     conviction_map = {p["ticker"]: p["conviction"] for p in guarded["portfolio"]}
     reasoning_map = {p["ticker"]: p["reasoning"] for p in guarded["portfolio"]}
     weight_map = {p["ticker"]: p["weight"] for p in guarded["portfolio"]}
-    short_weight_map = {p["ticker"]: p["weight"] for p in guarded.get("short_portfolio", [])}
 
     doc_ids = [d["id"] for d in docs if "id" in d]
 
@@ -238,7 +245,7 @@ Output your portfolio JSON now. Remember: long weights sum to 1.0 (max 10%), sho
         "stock_conviction": json.dumps(conviction_map),
         "stock_weights": json.dumps(weight_map),
         "stock_reasoning": json.dumps(reasoning_map),
-        "short_weights": json.dumps(short_weight_map) if short_weight_map else None,
+        "short_weights": None,
         "macro_signal": json.dumps(macro_signal) if macro_signal else None,
         "sector_tilt": json.dumps({}),
         "supply_demand_balance": guarded.get("supply_demand_balance", 0.0),
