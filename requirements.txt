@@ -7,3 +7,5 @@ pytest-mock==3.14.0
 alpaca-py==0.38.0
 fredapi==3.1.0
 yfinance==0.2.51
+chromadb==1.5.9
+scikit-learn==1.6.1
