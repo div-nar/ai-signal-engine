@@ -58,21 +58,35 @@ def ingest_edgar(
     edgar_tickers: dict[str, str],
     max_per_ticker: int,
     db_path: str = str(DEFAULT_DB),
+    chroma_client=None,
 ) -> int:
     """Ingest 8-K filings for all configured tickers. Returns count of new docs."""
     count = 0
     for ticker, cik in edgar_tickers.items():
         filings = fetch_edgar_filings(cik=cik, ticker=ticker, max_filings=max_per_ticker)
         for f in filings:
+            title = f["title"]
+            content = f["content"]
+            filed_at = f["published"]
             result = insert_document(
                 db_path=db_path,
                 source="edgar",
-                title=f["title"],
+                title=title,
                 url=f["url"],
-                published_at=f["published"],
-                content=f["content"],
+                published_at=filed_at,
+                content=content,
                 value_chain_layer="infrastructure",
             )
             if result is not None:
                 count += 1
+                if chroma_client is not None:
+                    from chroma_store import upsert_research_doc
+                    text = f"{title} {content[:1000]}".strip()
+                    metadata = {
+                        "source": "edgar",
+                        "ticker_mentions": ticker,
+                        "ingested_at": filed_at or "",
+                        "value_chain_layer": "platform",
+                    }
+                    upsert_research_doc(chroma_client, str(result), text, metadata)
     return count

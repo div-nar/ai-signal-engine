@@ -46,20 +46,43 @@ def ingest_rss(
     feed_url: str,
     value_chain_layer: str,
     db_path: str = str(DEFAULT_DB),
+    chroma_client=None,
 ) -> int:
     """Fetch RSS entries and insert new ones into DB. Returns count of new docs."""
-    entries = fetch_rss_entries(feed_url)
+    feed = feedparser.parse(feed_url)
+    raw_entries = feed.entries if hasattr(feed, "entries") else feed.get("entries", [])
     count = 0
-    for e in entries:
+    for entry in raw_entries:
+        if entry.get("content"):
+            raw_content = entry["content"][0]["value"]
+        else:
+            raw_content = entry.get("summary", "")
+        content = _strip_html(raw_content)
+
+        title = entry.get("title", "")
+        url = entry.get("link", "") or entry.get("url", "")
+        published = entry.get("published", None)
+        summary = entry.get("summary", "")
+
         result = insert_document(
             db_path=db_path,
             source="rss",
-            title=e["title"],
-            url=e["url"],
-            published_at=e["published"],
-            content=e["content"],
+            title=title,
+            url=url,
+            published_at=published,
+            content=content,
             value_chain_layer=value_chain_layer,
         )
         if result is not None:
             count += 1
+            if chroma_client is not None:
+                from chroma_store import upsert_research_doc
+                text = f"{title} {summary}".strip()
+                metadata = {
+                    "source": "rss",
+                    "ticker_mentions": "",
+                    "ingested_at": published or "",
+                    "value_chain_layer": value_chain_layer,
+                }
+                upsert_research_doc(chroma_client, str(result), text, metadata)
     return count
