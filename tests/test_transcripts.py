@@ -67,7 +67,7 @@ def test_ingest_edgar_inserts_documents(tmp_path):
     assert count == 2
     docs = get_unscored_documents(db_path)
     assert docs[0]["source"] == "edgar"
-    assert docs[0]["value_chain_layer"] == "infrastructure"
+    assert docs[0]["value_chain_layer"] == "platform"
 
 
 def test_ingest_edgar_skips_duplicates(tmp_path):

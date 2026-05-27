@@ -75,7 +75,7 @@ def ingest_edgar(
                 url=f["url"],
                 published_at=filed_at,
                 content=content,
-                value_chain_layer="infrastructure",
+                value_chain_layer="platform",
             )
             if result is not None:
                 count += 1
