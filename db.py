@@ -107,6 +107,22 @@ def get_recent_documents(db_path: str = str(DEFAULT_DB), days: int = 30) -> list
     return [dict(r) for r in rows]
 
 
+def get_all_documents(db_path: str = str(DEFAULT_DB)) -> list[dict]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM documents ORDER BY id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_signals(db_path: str = str(DEFAULT_DB)) -> list[dict]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM signals ORDER BY id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def mark_scored(db_path: str, doc_ids: list[int]) -> None:
     if not doc_ids:
         return

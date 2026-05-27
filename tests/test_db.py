@@ -110,3 +110,31 @@ def test_insert_signal_roundtrip_with_short_weights(db_path):
     conn.close()
     assert json.loads(row[0]) == {"AMD": 0.6, "QCOM": 0.4}
     assert json.loads(row[1])["regime"] == "shipping_bottleneck"
+
+
+def test_get_all_documents_returns_all_rows(tmp_path):
+    from db import init_db, insert_document, get_all_documents
+    db = str(tmp_path / "test.db")
+    init_db(db)
+    insert_document(db, "rss", "Title A", "http://a.com", None, "body a", "compute")
+    insert_document(db, "rss", "Title B", "http://b.com", None, "body b", "platform")
+    rows = get_all_documents(db)
+    assert len(rows) == 2
+    assert rows[0]["title"] == "Title A"
+
+
+def test_get_all_signals_returns_all_rows(tmp_path):
+    from db import init_db, insert_signal, get_all_signals
+    db = str(tmp_path / "test.db")
+    init_db(db)
+    insert_signal(db, {
+        "p_final": 0.88, "stock_conviction": "{}", "stock_weights": "{}",
+        "stock_reasoning": "{}", "sector_tilt": "{}", "supply_demand_balance": 0.5,
+        "market_regime": "compute_constrained", "signal_confidence": 0.9,
+        "thesis_stress": False, "signal_age_days": 0, "sources_ingested": 10,
+        "signal_breakdown": "{}", "thesis_update": "ok", "raw_response": None,
+        "prompt_context_doc_ids": "[]", "short_weights": None, "macro_signal": None,
+    })
+    rows = get_all_signals(db)
+    assert len(rows) == 1
+    assert rows[0]["market_regime"] == "compute_constrained"
