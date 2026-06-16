@@ -217,3 +217,30 @@ def test_score_documents_queries_chroma_not_sqlite(tmp_path):
     mock_q_docs.assert_called_once()
     mock_q_sigs.assert_called_once()
     assert result["p_final"] == pytest.approx(0.88)
+
+
+def test_score_documents_falls_back_to_sqlite_when_chroma_query_fails(tmp_path):
+    """A Chroma/embedding failure (e.g. 429) must not kill scoring — fall back to SQLite docs."""
+    from db import init_db
+    db_path = str(tmp_path / "test.db")
+    init_db(db_path)
+
+    chroma_client = MagicMock()
+
+    with patch("chroma_store.query_research_docs",
+               side_effect=RuntimeError("429 RESOURCE_EXHAUSTED")), \
+         patch("chroma_store.query_signal_records",
+               side_effect=RuntimeError("429 RESOURCE_EXHAUSTED")), \
+         patch("scoring.gemini_scorer.genai.Client") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value.text = json.dumps(VALID_GEMINI_OUTPUT)
+        mock_client_cls.return_value = mock_client
+
+        result = score_documents(
+            docs=SAMPLE_DOCS, db_path=db_path, prev_weights={},
+            chroma_client=chroma_client,
+        )
+
+    # Scoring still succeeds, using the 3 SQLite fallback docs rather than crashing.
+    assert result["p_final"] == 0.82
+    assert result["sources_ingested"] == 3

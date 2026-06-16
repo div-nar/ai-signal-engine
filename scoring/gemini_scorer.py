@@ -167,6 +167,12 @@ def score_documents(
         prev_weights = {}
 
     # ── Document retrieval ────────────────────────────────────────────────────
+    # Semantic retrieval via ChromaDB is an enhancement, not a hard dependency.
+    # The query embedding is a live Gemini call that can fail (429, timeout). On
+    # any failure, fall back to the SQLite `docs` passed in rather than letting a
+    # retrieval hiccup take down the whole scoring run (which would mean no signal
+    # that day). past_signals is best-effort and simply omitted on failure.
+    past_signals = []
     if chroma_client is not None:
         from chroma_store import query_research_docs, query_signal_records
         regime_label = (macro_signal or {}).get("regime", "compute_constrained")
@@ -174,10 +180,13 @@ def score_documents(
             f"AI infrastructure buildout regime:{regime_label} "
             "semiconductor GPU power datacenter capex supply chain"
         )
-        docs = query_research_docs(chroma_client, query, n_results=30)
-        past_signals = query_signal_records(chroma_client, query, n_results=3)
-    else:
-        past_signals = []
+        try:
+            docs = query_research_docs(chroma_client, query, n_results=30)
+            past_signals = query_signal_records(chroma_client, query, n_results=3)
+        except Exception as e:
+            print(f"  WARNING: ChromaDB semantic retrieval failed, falling back to "
+                  f"SQLite recency docs: {e}")
+            past_signals = []
 
     guardrail_baseline = current_portfolio if current_portfolio else prev_weights
     context = build_signal_context(docs, current_portfolio=current_portfolio, macro_signal=macro_signal)
