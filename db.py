@@ -49,6 +49,18 @@ def init_db(db_path: str = str(DEFAULT_DB)) -> None:
             raw_response             TEXT,
             prompt_context_doc_ids   TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS portfolio_history (
+            id                INTEGER PRIMARY KEY,
+            snapshot_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            equity            REAL,
+            cash              REAL,
+            long_market_value REAL,
+            unrealized_pl     REAL,
+            realized_to_date  REAL,
+            net_deposits      REAL,
+            total_return_pct  REAL
+        );
     """)
     # Migration: add reasoning-trace columns to existing signals tables.
     existing = {row[1] for row in conn.execute("PRAGMA table_info(signals)").fetchall()}
@@ -133,6 +145,29 @@ def mark_scored(db_path: str, doc_ids: list[int]) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def insert_portfolio_snapshot(db_path: str, data: dict) -> int:
+    """Persist one mark-to-market account snapshot. Returns the new row id."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute(
+        """INSERT INTO portfolio_history
+           (equity, cash, long_market_value, unrealized_pl,
+            realized_to_date, net_deposits, total_return_pct)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            data["equity"],
+            data["cash"],
+            data["long_market_value"],
+            data["unrealized_pl"],
+            data["realized_to_date"],
+            data["net_deposits"],
+            data["total_return_pct"],
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return cursor.lastrowid
 
 
 def insert_signal(db_path: str, data: dict) -> int:

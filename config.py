@@ -86,3 +86,8 @@ MAX_STOCK_WEIGHT = 0.10
 MIN_HEDGE_SECTOR_WEIGHT = 0.02
 MAX_TURNOVER_VS_PREV = 0.20
 WEIGHT_SUM_TOLERANCE = 0.01
+
+# ── Performance accounting ─────────────────────────────────────────────────────
+# Net capital deposited into the (paper) account, used as the cost basis for
+# total-return math in portfolio snapshots. No top-ups/withdrawals to date.
+STARTING_CAPITAL = 100_000.0

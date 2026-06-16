@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Optional
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
@@ -58,6 +59,36 @@ def get_alpaca_positions() -> dict:
     except Exception as e:
         print(f"  WARNING: Could not fetch Alpaca positions: {e}")
         return {"longs": {}, "net_exposure": 0.0, "gross_exposure": 0.0, "portfolio_value": 0.0}
+
+
+def get_account_snapshot(net_deposits: float = 100_000.0) -> Optional[dict]:
+    """Mark-to-market account snapshot for performance accounting.
+
+    Returns None if credentials are unset. realized_to_date is derived as
+    (total P&L − open unrealized): equity already nets cash + holdings, so
+    total P&L is equity − net_deposits, and subtracting open unrealized leaves
+    profit already booked into cash. It's an identity, not a per-trade ledger.
+    """
+    client = _get_client()
+    if not client:
+        return None
+
+    account = client.get_account()
+    equity = float(account.equity)
+    cash = float(account.cash)
+    long_market_value = float(account.long_market_value or 0.0)
+    unrealized_pl = sum(float(p.unrealized_pl) for p in client.get_all_positions())
+
+    total_pnl = equity - net_deposits
+    return {
+        "equity": equity,
+        "cash": cash,
+        "long_market_value": long_market_value,
+        "unrealized_pl": unrealized_pl,
+        "realized_to_date": total_pnl - unrealized_pl,
+        "net_deposits": net_deposits,
+        "total_return_pct": (total_pnl / net_deposits * 100) if net_deposits else 0.0,
+    }
 
 
 def rebalance(long_weights: dict, net_exposure_target: float) -> None:

@@ -19,16 +19,16 @@ from pathlib import Path
 
 from config import (
     DB_PATH, RSS_FEEDS, HF_PAPERS_MAX_RESULTS,
-    EDGAR_TICKERS,
+    EDGAR_TICKERS, STARTING_CAPITAL,
 )
-from db import init_db, get_unscored_documents, get_recent_documents, mark_scored, insert_signal, get_all_documents, get_all_signals
+from db import init_db, get_unscored_documents, get_recent_documents, mark_scored, insert_signal, get_all_documents, get_all_signals, insert_portfolio_snapshot
 from ingestion.rss import ingest_rss
 from ingestion.huggingface_papers import ingest_hf_papers
 from ingestion.transcripts import ingest_edgar
 from macro.regime import compute_macro_signal
 from macro.composite import is_cache_stale, fit_and_cache_composite
 from scoring.gemini_scorer import score_documents
-from execution.alpaca import get_alpaca_positions, rebalance
+from execution.alpaca import get_alpaca_positions, rebalance, get_account_snapshot
 from export import export_signal
 from chroma_store import init_chroma, run_chroma_backfill, upsert_signal_record
 
@@ -192,6 +192,22 @@ def main():
     # 8. Export
     print("\n--- Exporting ---")
     export_signal(signal)
+
+    # 9. Record a mark-to-market portfolio snapshot for our own performance
+    # history (independent of Alpaca's limited retention). Best-effort: a
+    # snapshot failure must never fail an otherwise-successful run.
+    try:
+        snapshot = get_account_snapshot(net_deposits=STARTING_CAPITAL)
+        if snapshot:
+            insert_portfolio_snapshot(DB_PATH, snapshot)
+            print(
+                f"  Portfolio: equity ${snapshot['equity']:,.0f} | "
+                f"total return {snapshot['total_return_pct']:+.2f}% | "
+                f"realized ${snapshot['realized_to_date']:,.0f} | "
+                f"unrealized ${snapshot['unrealized_pl']:,.0f}"
+            )
+    except Exception as e:
+        print(f"  WARNING: portfolio snapshot failed (non-fatal): {e}")
 
     print("\nDone.")
 

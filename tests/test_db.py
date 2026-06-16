@@ -17,7 +17,36 @@ def test_init_db_creates_tables(db_path):
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     tables = {row[0] for row in cursor.fetchall()}
     conn.close()
-    assert {"documents", "scores", "signals"} == tables
+    assert {"documents", "scores", "signals", "portfolio_history"} == tables
+
+
+def test_init_db_creates_portfolio_history_columns(db_path):
+    conn = sqlite3.connect(db_path)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(portfolio_history)").fetchall()}
+    conn.close()
+    assert {
+        "snapshot_at", "equity", "cash", "long_market_value",
+        "unrealized_pl", "realized_to_date", "net_deposits", "total_return_pct",
+    } <= cols
+
+
+def test_insert_portfolio_snapshot_roundtrip(db_path):
+    from db import insert_portfolio_snapshot
+    snap_id = insert_portfolio_snapshot(db_path, {
+        "equity": 115928.07, "cash": 34861.43, "long_market_value": 81066.64,
+        "unrealized_pl": 517.65, "realized_to_date": 15410.42,
+        "net_deposits": 100000.0, "total_return_pct": 15.93,
+    })
+    assert snap_id > 0
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT equity, realized_to_date, total_return_pct FROM portfolio_history WHERE id = ?",
+        (snap_id,),
+    ).fetchone()
+    conn.close()
+    assert row[0] == pytest.approx(115928.07)
+    assert row[1] == pytest.approx(15410.42)
+    assert row[2] == pytest.approx(15.93)
 
 
 def test_insert_document_returns_id(db_path):
