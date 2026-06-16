@@ -16,14 +16,13 @@ def _make_account(portfolio_value=100_000.0):
     return acc
 
 
-def test_get_alpaca_positions_returns_longs_and_shorts():
+def test_get_alpaca_positions_returns_longs():
     from execution.alpaca import get_alpaca_positions
     mock_client = MagicMock()
     mock_client.get_account.return_value = _make_account(100_000)
     mock_client.get_all_positions.return_value = [
         _make_position("NVDA", 12_000, "long"),
         _make_position("MU",   9_000, "long"),
-        _make_position("AMD", -7_000, "short"),
     ]
 
     with patch("execution.alpaca.TradingClient", return_value=mock_client), \
@@ -32,8 +31,7 @@ def test_get_alpaca_positions_returns_longs_and_shorts():
 
     assert result["longs"]["NVDA"] == pytest.approx(0.12)
     assert result["longs"]["MU"] == pytest.approx(0.09)
-    assert result["shorts"]["AMD"] == pytest.approx(0.07)
-    assert result["net_exposure"] == pytest.approx(0.21 - 0.07)
+    assert result["net_exposure"] == pytest.approx(0.21)
     assert result["portfolio_value"] == pytest.approx(100_000)
 
 
@@ -41,7 +39,7 @@ def test_get_alpaca_positions_returns_empty_when_no_credentials():
     from execution.alpaca import get_alpaca_positions
     with patch.dict("os.environ", {}, clear=True):
         result = get_alpaca_positions()
-    assert result == {"longs": {}, "shorts": {}, "net_exposure": 0.0, "gross_exposure": 0.0, "portfolio_value": 0.0}
+    assert result == {"longs": {}, "net_exposure": 0.0, "gross_exposure": 0.0, "portfolio_value": 0.0}
 
 
 def test_rebalance_skips_tiny_orders():
@@ -49,15 +47,12 @@ def test_rebalance_skips_tiny_orders():
     mock_client = MagicMock()
     mock_client.get_account.return_value = _make_account(100_000)
     mock_client.get_all_positions.return_value = []
+    mock_client.get_orders.return_value = []
 
     # Weight of 0.003 → $300 long notional at net=0.80, below $500 min threshold
     with patch("execution.alpaca.TradingClient", return_value=mock_client), \
          patch.dict("os.environ", {"ALPACA_API_KEY": "fake", "ALPACA_SECRET_KEY": "fake"}):
-        rebalance(
-            long_weights={"NVDA": 0.003},
-            short_weights={},
-            net_exposure_target=0.80,
-        )
+        rebalance(long_weights={"NVDA": 0.003}, net_exposure_target=0.80)
 
     mock_client.submit_order.assert_not_called()
 
@@ -70,7 +65,8 @@ def test_rebalance_executes_without_error_at_boundary_gross():
         mock_client = MagicMock()
         mock_client.get_account.return_value = _make_account(100_000)
         mock_client.get_all_positions.return_value = []
+        mock_client.get_orders.return_value = []
         mock_cls.return_value = mock_client
 
-        rebalance(long_weights=long_weights, short_weights={}, net_exposure_target=0.80)
+        rebalance(long_weights=long_weights, net_exposure_target=0.80)
         # Should complete without raising

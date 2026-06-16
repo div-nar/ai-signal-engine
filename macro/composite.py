@@ -60,7 +60,13 @@ def _build_signal_history(lookback: int = 90, fred_api_key: Optional[str] = None
         fred = Fred(api_key=api_key)
         dgorder = fred.get_series("DGORDER", observation_start="2024-01-01")
         pmi_raw = (50.0 + (dgorder.pct_change() * 500)).clip(30.0, 70.0)
-        pmi_daily = pmi_raw.resample("D").interpolate("linear")
+        # DGORDER is monthly and lags ~2 months. resample("D") only spans up to
+        # the last print, so reindex onto the price calendar and forward-fill the
+        # last known release through today — otherwise recent dates are all-NaN
+        # and the .dropna() below wipes the entire frame (empty PCA fit → crash).
+        pmi_daily = (
+            pmi_raw.resample("D").interpolate("linear").reindex(vix.index, method="ffill")
+        )
     else:
         pmi_daily = pd.Series(50.0, index=vix.index)
 

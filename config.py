@@ -22,9 +22,8 @@ RSS_FEEDS = [
     {"url": "https://importai.substack.com/feed",       "value_chain_layer": "application"},
 ]
 
-# ── arXiv ─────────────────────────────────────────────────────────────────────
-ARXIV_CATEGORIES = ["cs.AI", "cs.LG", "cs.AR"]
-ARXIV_MAX_RESULTS = 50  # per category per run
+# ── HuggingFace Daily Papers ───────────────────────────────────────────────────
+HF_PAPERS_MAX_RESULTS = 50
 
 # ── SEC EDGAR ─────────────────────────────────────────────────────────────────
 EDGAR_TICKERS = {
@@ -75,10 +74,15 @@ TICKER_UNIVERSE = [
 GEMINI_MODEL = "gemini-3-flash-preview"
 GEMINI_MAX_OUTPUT_TOKENS = 8192
 
+# Embedding model for ChromaDB semantic retrieval. NOTE: the older
+# text-embedding-004 was retired by Google (returns 404); gemini-embedding-001
+# is its successor. Its default output is 3072-dim and L2-normalised. Changing
+# this requires rebuilding the Chroma collections (delete data/chroma) since
+# vectors of different dimensionality cannot coexist in one collection.
+EMBEDDING_MODEL = "gemini-embedding-001"
+
 # ── Guardrails ─────────────────────────────────────────────────────────────────
 MAX_STOCK_WEIGHT = 0.10
 MIN_HEDGE_SECTOR_WEIGHT = 0.02
 MAX_TURNOVER_VS_PREV = 0.20
 WEIGHT_SUM_TOLERANCE = 0.01
-MAX_SHORT_WEIGHT = 0.08
-MAX_GROSS_EXPOSURE = 1.80

@@ -26,6 +26,7 @@ from ingestion.rss import ingest_rss
 from ingestion.huggingface_papers import ingest_hf_papers
 from ingestion.transcripts import ingest_edgar
 from macro.regime import compute_macro_signal
+from macro.composite import is_cache_stale, fit_and_cache_composite
 from scoring.gemini_scorer import score_documents
 from execution.alpaca import get_alpaca_positions, rebalance
 from export import export_signal
@@ -65,7 +66,28 @@ def main():
     chroma_client = init_chroma(chroma_path)
     all_docs = get_all_documents(DB_PATH)
     all_sigs = get_all_signals(DB_PATH)
-    run_chroma_backfill(chroma_client, all_docs, all_sigs, sentinel_path)
+    try:
+        run_chroma_backfill(chroma_client, all_docs, all_sigs, sentinel_path)
+    except Exception as e:
+        # Semantic retrieval is an enhancement, not a hard dependency — never let
+        # it block ingestion → scoring → execution → export.
+        print(f"  WARNING: ChromaDB backfill errored, continuing without it: {e}")
+
+    # Weekly PCA refit (Monday, or if cache is stale)
+    composite_cache = str(Path(__file__).parent / "data" / "composite_modifier_cache.json")
+    Path(__file__).parent.joinpath("data").mkdir(parents=True, exist_ok=True)
+    today_weekday = datetime.now(timezone.utc).weekday()  # 0 = Monday
+    if today_weekday == 0 or is_cache_stale(composite_cache):
+        print("\n--- Fitting PCA composite modifier (weekly) ---")
+        fred_key = os.environ.get("FRED_API_KEY")
+        try:
+            fit_and_cache_composite(composite_cache, fred_api_key=fred_key)
+            print("  PCA modifier cache written.")
+        except Exception as e:
+            # The composite modifier is an enhancement — daily apply falls back
+            # to a 0.0 modifier when the cache is missing/stale. Never let a macro
+            # data hiccup block ingestion → scoring → execution → export.
+            print(f"  WARNING: PCA composite refit failed, using prior/zero modifier: {e}")
 
     # 2. Ingest
     print("\n--- Ingestion ---")
@@ -95,7 +117,7 @@ def main():
 
     # 3. Compute macro signal
     print("\n--- Macro Signal ---")
-    macro_signal = compute_macro_signal()
+    macro_signal = compute_macro_signal(cache_path=composite_cache)
     print(f"  Regime: {macro_signal['regime']} (confidence: {macro_signal['regime_confidence']:.2f})")
     print(f"  Net exposure target: {macro_signal['net_exposure_target']:.2f}")
     print(f"  {macro_signal['notes']}")
@@ -111,14 +133,25 @@ def main():
     # 5. Score
     print(f"\n--- Scoring {len(unscored)} documents via Gemini ---")
     prev_weights = get_prev_weights(DB_PATH)
-    signal = score_documents(
-        docs=unscored,
-        db_path=DB_PATH,
-        prev_weights=prev_weights,
-        current_portfolio=current_portfolio,
-        macro_signal=macro_signal,
-        chroma_client=chroma_client,
-    )
+    try:
+        signal = score_documents(
+            docs=unscored,
+            db_path=DB_PATH,
+            prev_weights=prev_weights,
+            current_portfolio=current_portfolio,
+            macro_signal=macro_signal,
+            chroma_client=chroma_client,
+        )
+    except Exception as e:
+        # Scoring needs a live Gemini call (LLM + embeddings). On any failure —
+        # depleted credits (429), rate limits, timeouts, 5xx — do NOT crash and do
+        # NOT rebalance on stale/partial data: hold the current book, leave the
+        # documents unscored so they retry next run, and exit cleanly so the cron
+        # stays healthy and resumes automatically once Gemini is reachable again.
+        print(f"  ERROR: Gemini scoring failed — holding current book, skipping "
+              f"rebalance and export. Documents left unscored for retry next run.")
+        print(f"  Reason: {e}")
+        return
 
     # 6. Persist
     doc_ids = [d["id"] for d in unscored]

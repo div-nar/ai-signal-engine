@@ -5,6 +5,8 @@ from typing import Optional
 import chromadb
 from google import genai
 
+from config import EMBEDDING_MODEL
+
 
 def init_chroma(path: str) -> chromadb.ClientAPI:
     client = chromadb.PersistentClient(path=path)
@@ -19,7 +21,7 @@ def _embed(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
         raise RuntimeError("GEMINI_API_KEY environment variable is not set")
     gc = genai.Client(api_key=api_key)
     result = gc.models.embed_content(
-        model="models/text-embedding-004",
+        model=EMBEDDING_MODEL,
         contents=text,
         config={"task_type": task_type},
     )
@@ -34,15 +36,22 @@ def upsert_research_doc(
     doc_id: str,
     text: str,
     metadata: dict,
-) -> None:
-    embedding = _embed(text, task_type="RETRIEVAL_DOCUMENT")
-    col = client.get_collection("research_docs")
-    col.upsert(
-        ids=[doc_id],
-        embeddings=[embedding],
-        documents=[text],
-        metadatas=[metadata],
-    )
+) -> bool:
+    """Embed and upsert a research doc. Returns True on success. Never raises —
+    an embedding/storage failure must not halt ingestion or the daily run."""
+    try:
+        embedding = _embed(text, task_type="RETRIEVAL_DOCUMENT")
+        col = client.get_collection("research_docs")
+        col.upsert(
+            ids=[doc_id],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[metadata],
+        )
+        return True
+    except Exception as e:
+        print(f"  WARNING: ChromaDB upsert_research_doc({doc_id}) failed: {e}")
+        return False
 
 
 def upsert_signal_record(
@@ -50,15 +59,21 @@ def upsert_signal_record(
     signal_id: str,
     text: str,
     metadata: dict,
-) -> None:
-    embedding = _embed(text, task_type="RETRIEVAL_DOCUMENT")
-    col = client.get_collection("macro_signals")
-    col.upsert(
-        ids=[signal_id],
-        embeddings=[embedding],
-        documents=[text],
-        metadatas=[metadata],
-    )
+) -> bool:
+    """Embed and upsert a signal record. Returns True on success. Never raises."""
+    try:
+        embedding = _embed(text, task_type="RETRIEVAL_DOCUMENT")
+        col = client.get_collection("macro_signals")
+        col.upsert(
+            ids=[signal_id],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[metadata],
+        )
+        return True
+    except Exception as e:
+        print(f"  WARNING: ChromaDB upsert_signal_record({signal_id}) failed: {e}")
+        return False
 
 
 def query_research_docs(
@@ -120,6 +135,8 @@ def run_chroma_backfill(
     if Path(sentinel_path).exists():
         return
     print("  ChromaDB: running one-time backfill...")
+    failures = 0
+    docs_ok = 0
     for doc in all_docs:
         doc_id = doc.get("id")
         if not doc_id:
@@ -133,7 +150,11 @@ def run_chroma_backfill(
             "ingested_at": str(doc.get("ingested_at", "")),
             "value_chain_layer": doc.get("value_chain_layer", "application"),
         }
-        upsert_research_doc(client, str(doc_id), text, metadata)
+        if upsert_research_doc(client, str(doc_id), text, metadata):
+            docs_ok += 1
+        else:
+            failures += 1
+    sigs_ok = 0
     for sig in all_signals:
         sig_id = sig.get("id")
         if not sig_id:
@@ -154,6 +175,15 @@ def run_chroma_backfill(
             "p_final": float(sig.get("p_final") or 0.0),
             "computed_at": str(sig.get("computed_at", "")),
         }
-        upsert_signal_record(client, f"signal_{sig_id}", text, metadata)
+        if upsert_signal_record(client, f"signal_{sig_id}", text, metadata):
+            sigs_ok += 1
+        else:
+            failures += 1
+    if failures:
+        # Don't write the sentinel — leave the backfill to retry on the next run
+        # rather than locking in a partial/empty index.
+        print(f"  ChromaDB: backfill incomplete — {docs_ok} docs, {sigs_ok} signals "
+              f"embedded, {failures} failures. Will retry next run.")
+        return
     Path(sentinel_path).write_text("done")
-    print(f"  ChromaDB: backfill complete — {len(all_docs)} docs, {len(all_signals)} signals")
+    print(f"  ChromaDB: backfill complete — {docs_ok} docs, {sigs_ok} signals")

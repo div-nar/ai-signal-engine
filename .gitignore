@@ -27,3 +27,6 @@ cron.log
 *.pptx
 *.docx
 *.xlsx
+
+# Vector store / caches (regenerated locally)
+data/
