@@ -1007,8 +1007,12 @@ def build_scorecard(daily_panel, benchmark, layer_map, budgets) -> pd.DataFrame:
 
 
 def main():
+    # Momentum needs ~126+21 trading days of runway, far more than the live
+    # account's ~60-day history. Load extended history so the momentum variant is
+    # genuinely evaluated; the equity curves for all variants + QQQ span the same
+    # extended window and remain comparable.
     tickers = sorted(LAYER_MAP) + ["QQQ"]
-    panel = load_price_panel(tickers, start="2026-03-25", end="2026-06-20")
+    panel = load_price_panel(tickers, start="2025-01-01", end="2026-06-20")
     qqq = panel["QQQ"]
     thesis_panel = panel.drop(columns=["QQQ"])
     weekly = to_weekly_fridays(thesis_panel)

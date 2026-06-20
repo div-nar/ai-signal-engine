@@ -492,7 +492,7 @@ git commit -m "feat(scoring): score_layer_thesis -> guardrailed layer budgets"
 
 **Interfaces:**
 - Produces:
-  - `fetch_recent_closes(tickers: list[str], lookback_days: int = 220, client=None, now=None) -> "pd.DataFrame"`
+  - `fetch_recent_closes(tickers: list[str], lookback_days: int = 320, client=None, now=None) -> "pd.DataFrame"`
     — daily close panel (index ascending dates, columns = tickers) for the trailing
     `lookback_days`. `client` is any object with
     `.get_stock_bars(request) -> object` whose `.data` is `{symbol: [bar, ...]}` and each
@@ -578,9 +578,13 @@ def _default_client():
     )
 
 
-def fetch_recent_closes(tickers: list[str], lookback_days: int = 220,
+def fetch_recent_closes(tickers: list[str], lookback_days: int = 320,
                         client=None, now=None) -> pd.DataFrame:
-    """Daily close panel for the trailing lookback_days (index ascending, cols=tickers)."""
+    """Daily close panel for the trailing lookback_days (index ascending, cols=tickers).
+
+    Default 320 calendar days (~228 trading days) leaves comfortable headroom over the
+    momentum window's 148-bar floor so a live run never silently returns too few rows.
+    """
     if client is None:
         client = _default_client()
     if now is None:
@@ -847,7 +851,11 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
         "regime_shift": thesis["regime_shift"],
         "thesis_update": thesis["thesis_update"],
     }
-    if persist:
+    # Never persist a degenerate (empty) target: an empty book would become next
+    # week's "prior" and would be what a Plan-2b executor reads. Fail loud instead.
+    if not weights:
+        print("  WARNING: empty target_weights (insufficient price history?) — not persisting")
+    elif persist:
         insert_target(db_path, target)
     return target
 ```
