@@ -25,4 +25,8 @@ def apply_layer_tilt(baseline: dict[str, float], tilt: dict[str, float]) -> dict
         budgets = {k: v / total for k, v in budgets.items()}
         if all(LAYER_FLOOR - 1e-9 <= v <= LAYER_CEILING + 1e-9 for v in budgets.values()):
             break
+    if not all(LAYER_FLOOR - 1e-9 <= v <= LAYER_CEILING + 1e-9 for v in budgets.values()):
+        raise RuntimeError(
+            "apply_layer_tilt: clamp/renormalize failed to converge within 50 iterations"
+        )
     return budgets

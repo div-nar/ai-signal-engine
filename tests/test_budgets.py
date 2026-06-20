@@ -40,3 +40,12 @@ def test_floor_enforced():
     out = apply_layer_tilt(BASELINE_BUDGETS, tilt)
     assert out["platform"] >= LAYER_FLOOR - 1e-9
     assert sum(out.values()) == pytest.approx(1.0)
+
+
+def test_raises_when_bounds_infeasible(monkeypatch):
+    # Force infeasibility: 5 layers * 0.10 max = 0.5 < 1.0, impossible to satisfy.
+    import strategy.budgets as b
+    monkeypatch.setattr(b, "LAYER_CEILING", 0.10)
+    tilt = {k: 0.0 for k in BASELINE_BUDGETS}
+    with pytest.raises(RuntimeError):
+        b.apply_layer_tilt(BASELINE_BUDGETS, tilt)
