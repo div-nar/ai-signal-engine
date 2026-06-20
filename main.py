@@ -33,6 +33,32 @@ from export import export_signal
 from chroma_store import init_chroma, run_chroma_backfill, upsert_signal_record
 
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="AI Signal Engine (layer-cake)")
+    parser.add_argument("--mode", required=True, choices=["passive", "sell", "buy"],
+                        help="passive: ingest+compute target (no trades); "
+                             "sell: compute+persist target, Friday sell leg; "
+                             "buy: execute Monday buy leg from latest target")
+    return parser.parse_args(argv)
+
+
+def dispatch(mode, run_passive=None, run_sell_fn=None, run_buy_fn=None):
+    """Route a mode to its handler. Handlers are injected for testability."""
+    if run_passive is None:
+        from orchestrate import compute_weekly_target as run_passive
+    if run_sell_fn is None:
+        from orchestrate import run_sell as run_sell_fn
+    if run_buy_fn is None:
+        from orchestrate import run_buy as run_buy_fn
+    if mode == "passive":
+        return run_passive([])
+    if mode == "sell":
+        return run_sell_fn([])
+    if mode == "buy":
+        return run_buy_fn()
+    raise ValueError(f"unknown mode: {mode!r}")
+
+
 def get_prev_weights(db_path: str) -> dict:
     """Load stock weights from most recent signal row."""
     import sqlite3
