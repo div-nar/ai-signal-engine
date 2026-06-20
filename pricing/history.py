@@ -27,8 +27,12 @@ def fetch_recent_closes(tickers: list[str], lookback_days: int = 320,
 
     from alpaca.data.requests import StockBarsRequest
     from alpaca.data.timeframe import TimeFrame
+    from alpaca.data.enums import DataFeed
+    # IEX is the free-tier feed; SIP rejects "recent" (<~15 min) bars with a 403.
+    # Momentum skips the most recent ~21 trading days anyway, so IEX daily closes
+    # are more than sufficient.
     request = StockBarsRequest(symbol_or_symbols=tickers, timeframe=TimeFrame.Day,
-                               start=start, end=now)
+                               start=start, end=now, feed=DataFeed.IEX)
     bars = client.get_stock_bars(request).data
 
     series = {}
