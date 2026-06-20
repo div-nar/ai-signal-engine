@@ -81,3 +81,15 @@ def test_empty_target_not_persisted(tmp_path):
     )
     assert out["target_weights"] == {}
     assert get_latest_target(db) is None
+
+
+def test_compute_self_inits_targets_table(tmp_path):
+    # No init_targets_table() call — compute_weekly_target must create it itself.
+    db = str(tmp_path / "fresh.db")
+    out = compute_weekly_target(
+        docs=[], db_path=db, thesis_client=FakeThesisClient(),
+        data_client=FakeDataClient(),
+        persist=True, now=dt.datetime(2025, 9, 1, tzinfo=dt.timezone.utc),
+    )
+    assert sum(out["layer_budgets"].values()) == pytest.approx(1.0)
+    assert get_latest_target(db) is not None

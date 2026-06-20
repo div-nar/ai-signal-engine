@@ -1,6 +1,6 @@
 """Weekly target computation: thesis -> budgets -> momentum -> target, persisted."""
 from config import DB_PATH
-from db import insert_target, get_latest_target
+from db import init_targets_table, insert_target, get_latest_target
 from strategy.layers import LAYER_MAP
 from scoring.thesis_scorer import score_layer_thesis
 from pricing.history import fetch_recent_closes
@@ -12,6 +12,7 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
                           thesis_client=None, data_client=None,
                           persist: bool = True, now=None) -> dict:
     """Run thesis -> budgets -> momentum pipeline and (optionally) persist the target."""
+    init_targets_table(db_path)
     prior = get_latest_target(db_path)
     prev_budgets = prior["layer_budgets"] if prior else {}
 
@@ -53,6 +54,7 @@ def run_sell(docs: list[dict], db_path: str = DB_PATH, thesis_client=None,
 
 def run_buy(db_path: str = DB_PATH, exec_client=None, cash_buffer: float = 0.0) -> dict | None:
     """Monday: load the latest persisted target, then execute the buy leg."""
+    init_targets_table(db_path)
     target = get_latest_target(db_path)
     if not target or not target.get("target_weights"):
         print("  No persisted target — skipping buys")
