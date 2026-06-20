@@ -28,6 +28,10 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
         "regime_shift": thesis["regime_shift"],
         "thesis_update": thesis["thesis_update"],
     }
-    if persist:
+    # Never persist a degenerate (empty) target: an empty book would become next
+    # week's "prior" and would be what a Plan-2b executor reads. Fail loud instead.
+    if not weights:
+        print("  WARNING: empty target_weights (insufficient price history?) — not persisting")
+    elif persist:
         insert_target(db_path, target)
     return target

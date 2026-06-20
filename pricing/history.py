@@ -12,9 +12,13 @@ def _default_client():
     )
 
 
-def fetch_recent_closes(tickers: list[str], lookback_days: int = 220,
+def fetch_recent_closes(tickers: list[str], lookback_days: int = 320,
                         client=None, now=None) -> pd.DataFrame:
-    """Daily close panel for the trailing lookback_days (index ascending, cols=tickers)."""
+    """Daily close panel for the trailing lookback_days (index ascending, cols=tickers).
+
+    Default 320 calendar days (~228 trading days) leaves comfortable headroom over the
+    momentum window's 148-bar floor so a live run never silently returns too few rows.
+    """
     if client is None:
         client = _default_client()
     if now is None:

@@ -62,3 +62,22 @@ def test_persist_false_does_not_write(tmp_path):
         now=dt.datetime(2025, 9, 1, tzinfo=dt.timezone.utc),
     )
     assert get_latest_target(db) is None
+
+
+class EmptyDataClient:
+    def get_stock_bars(self, request):
+        class R: pass
+        r = R(); r.data = {}
+        return r
+
+
+def test_empty_target_not_persisted(tmp_path):
+    db = str(tmp_path / "t.db")
+    init_targets_table(db)
+    out = compute_weekly_target(
+        docs=[], db_path=db, thesis_client=FakeThesisClient(),
+        data_client=EmptyDataClient(), persist=True,
+        now=dt.datetime(2025, 9, 1, tzinfo=dt.timezone.utc),
+    )
+    assert out["target_weights"] == {}
+    assert get_latest_target(db) is None
