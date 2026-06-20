@@ -26,6 +26,15 @@ def test_closes_names_not_in_target():
     c.close_position.assert_called_once_with("OLD")
 
 
+def test_empty_target_does_not_liquidate():
+    # Defense-in-depth: an empty target must never close the whole book.
+    c = _client(100_000, [_pos("NVDA", 50_000), _pos("MU", 50_000)])
+    ids = execute_sells({}, client=c)
+    assert ids == []
+    c.close_position.assert_not_called()
+    c.submit_order.assert_not_called()
+
+
 def test_trims_overweight_name():
     # NVDA held 30k, target 50% of 100k = 50k -> no sell; MU held 30k, target 10% = 10k -> sell ~20k
     c = _client(100_000, [_pos("NVDA", 30_000), _pos("MU", 30_000)])

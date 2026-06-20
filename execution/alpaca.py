@@ -133,6 +133,12 @@ def execute_sells(target_weights: dict, cash_buffer: float = 0.0, client=None) -
         print("  WARNING: Alpaca credentials not set — skipping sells")
         return []
 
+    # Defense-in-depth: an empty target would mark every held name "absent" and
+    # close the entire book. Refuse, independent of the caller's own guard.
+    if not target_weights:
+        print("  WARNING: empty target_weights — refusing to sell (would liquidate the book)")
+        return []
+
     account = client.get_account()
     portfolio_value = float(account.portfolio_value)
     scale = 1.0 - cash_buffer
