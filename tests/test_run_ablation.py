@@ -20,7 +20,7 @@ def _panel(n=200):
 def test_scorecard_has_all_variants():
     p = _panel()
     bench = p["A"] / p["A"].iloc[0]  # any benchmark series
-    sc = build_scorecard(p, bench, LAYER_MAP, BUDGETS)
+    sc = build_scorecard(p, bench, LAYER_MAP, BUDGETS, lookback=20, skip=5)
     assert set(sc.index) == {"baseline", "momentum", "QQQ"}
     assert "sharpe" in sc.columns
     assert "total_return_pct" in sc.columns

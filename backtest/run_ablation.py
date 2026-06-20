@@ -10,7 +10,7 @@ replaying recorded thesis passes. This runner establishes the mechanical floor.
 import pandas as pd
 
 from strategy.layers import LAYER_MAP, BASELINE_BUDGETS
-from backtest.panel import load_price_panel, to_weekly_fridays, forward_returns
+from backtest.panel import load_price_panel, to_weekly_fridays
 from backtest.engine import run_variant, metrics
 
 
@@ -20,13 +20,32 @@ def _benchmark_equity(daily_panel, weekly_index, bench_col: str) -> pd.Series:
     return weekly / weekly.iloc[0]
 
 
-def build_scorecard(daily_panel, benchmark, layer_map, budgets) -> pd.DataFrame:
-    """One row per variant + QQQ, columns = metrics."""
+def _first_active_date(daily_panel, rebal_index, lookback, skip):
+    """First rebalance date with enough history for a momentum signal."""
+    needed = lookback + skip + 1
+    for d in rebal_index:
+        if len(daily_panel.loc[:d]) >= needed:
+            return d
+    return rebal_index[-1]
+
+
+def _trim_renormalize(equity, start):
+    """Restrict an equity curve to dates >= start and rebase it to 1.0 at start."""
+    e = equity.loc[equity.index >= start]
+    return e / e.iloc[0]
+
+
+def build_scorecard(daily_panel, benchmark, layer_map, budgets, lookback=126, skip=21) -> pd.DataFrame:
+    """One row per variant + QQQ, columns = metrics, all over the common
+    fully-invested window (momentum's warm-up cash period trimmed off)."""
+    weekly = to_weekly_fridays(daily_panel)
+    start = _first_active_date(daily_panel, weekly.index, lookback, skip)
     rows = {}
     for variant in ("baseline", "momentum"):
-        eq = run_variant(daily_panel, layer_map, budgets, variant=variant)
-        rows[variant] = metrics(eq)
-    rows["QQQ"] = metrics(benchmark)
+        eq = run_variant(daily_panel, layer_map, budgets, variant=variant,
+                         lookback=lookback, skip=skip)
+        rows[variant] = metrics(_trim_renormalize(eq, start))
+    rows["QQQ"] = metrics(_trim_renormalize(benchmark, start))
     return pd.DataFrame(rows).T[["total_return_pct", "sharpe", "max_drawdown_pct"]]
 
 
@@ -37,7 +56,6 @@ def main():
     # extended window and remain comparable.
     tickers = sorted(LAYER_MAP) + ["QQQ"]
     panel = load_price_panel(tickers, start="2025-01-01", end="2026-06-20")
-    qqq = panel["QQQ"]
     thesis_panel = panel.drop(columns=["QQQ"])
     weekly = to_weekly_fridays(thesis_panel)
     bench = _benchmark_equity(panel, weekly.index, "QQQ")
