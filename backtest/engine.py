@@ -22,19 +22,19 @@ def run_variant(daily_panel, layer_map, budgets, variant: str = "baseline",
 
     equity = [1.0]
     index = [weekly.index[0]]
-    for d0 in fwd.index:
+    for i, d0 in enumerate(fwd.index):
         if variant == "momentum":
             scores = momentum_scores(daily_panel, d0, lookback=lookback, skip=skip)
             scores = {t: scores[t] for t in universe if t in scores}
-            if not scores:
-                scores = equal_weight_scores(universe)
-        else:
+        elif variant == "baseline":
             scores = equal_weight_scores(universe)
+        else:
+            raise ValueError(f"Unknown variant: {variant!r}")
         weights = assemble_portfolio(budgets, scores, layer_map, top_n=top_n, name_cap=name_cap)
         period = fwd.loc[d0]
         port_ret = sum(w * period.get(t, 0.0) for t, w in weights.items())
         equity.append(equity[-1] * (1.0 + port_ret))
-        index.append(d0)
+        index.append(weekly.index[i + 1])  # label equity by period END, not start
     return pd.Series(equity, index=index)
 
 

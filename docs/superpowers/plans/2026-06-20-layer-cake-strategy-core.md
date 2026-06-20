@@ -823,9 +823,13 @@ def test_run_variant_returns_growing_equity_in_uptrend():
 
 def test_momentum_beats_baseline_when_winners_persist():
     p = _panel()
-    base = run_variant(p, LAYER_MAP, BUDGETS, variant="baseline")
-    mom = run_variant(p, LAYER_MAP, BUDGETS, variant="momentum")
-    # momentum concentrates in the persistent winners (A, C) -> ends higher
+    # name_cap=0.5 keeps both variants fully invested on this 4-name test universe
+    # (the 0.12 production cap is infeasible with so few names); short lookback so
+    # momentum is active across the 200-row panel.
+    base = run_variant(p, LAYER_MAP, BUDGETS, variant="baseline", name_cap=0.5)
+    mom = run_variant(p, LAYER_MAP, BUDGETS, variant="momentum",
+                      lookback=20, skip=5, name_cap=0.5)
+    # momentum concentrates in the persistent winners (A, C) -> ends >= baseline
     assert mom.iloc[-1] >= base.iloc[-1]
 
 
@@ -870,17 +874,19 @@ def run_variant(daily_panel, layer_map, budgets, variant: str = "baseline",
 
     equity = [1.0]
     index = [weekly.index[0]]
-    for d0 in fwd.index:
+    for i, d0 in enumerate(fwd.index):
         if variant == "momentum":
             scores = momentum_scores(daily_panel, d0, lookback=lookback, skip=skip)
             scores = {t: scores[t] for t in universe if t in scores}
-        else:
+        elif variant == "baseline":
             scores = equal_weight_scores(universe)
+        else:
+            raise ValueError(f"Unknown variant: {variant!r}")
         weights = assemble_portfolio(budgets, scores, layer_map, top_n=top_n, name_cap=name_cap)
         period = fwd.loc[d0]
         port_ret = sum(w * period.get(t, 0.0) for t, w in weights.items())
         equity.append(equity[-1] * (1.0 + port_ret))
-        index.append(d0)
+        index.append(weekly.index[i + 1])  # label equity by period END, not start
     return pd.Series(equity, index=index)
 
 

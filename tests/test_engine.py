@@ -31,10 +31,19 @@ def test_run_variant_returns_growing_equity_in_uptrend():
 
 def test_momentum_beats_baseline_when_winners_persist():
     p = _panel()
-    base = run_variant(p, LAYER_MAP, BUDGETS, variant="baseline")
-    mom = run_variant(p, LAYER_MAP, BUDGETS, variant="momentum")
-    # momentum concentrates in the persistent winners (A, C) -> ends higher
+    # name_cap=0.5 keeps both variants fully invested on this 4-name test universe
+    # (the 0.12 production cap is infeasible with so few names); short lookback so
+    # momentum is active across the 200-row panel.
+    base = run_variant(p, LAYER_MAP, BUDGETS, variant="baseline", name_cap=0.5)
+    mom = run_variant(p, LAYER_MAP, BUDGETS, variant="momentum",
+                      lookback=20, skip=5, name_cap=0.5)
+    # momentum concentrates in the persistent winners (A, C) -> ends >= baseline
     assert mom.iloc[-1] >= base.iloc[-1]
+
+
+def test_unknown_variant_raises():
+    with pytest.raises(ValueError):
+        run_variant(_panel(), LAYER_MAP, BUDGETS, variant="bogus")
 
 
 def test_metrics_shape_and_drawdown_sign():
