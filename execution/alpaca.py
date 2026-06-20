@@ -10,6 +10,40 @@ _MIN_ORDER_VALUE = 500.0
 _ORDER_DELAY_S = 0.3
 _CANCEL_POLL_INTERVAL_S = 1.0
 _CANCEL_POLL_TIMEOUT_S = 30.0
+_FILL_POLL_S = 2.0
+_FILL_TIMEOUT_S = 120.0
+_TERMINAL_STATES = {"filled", "canceled", "cancelled", "rejected", "expired", "done_for_day"}
+
+
+def _status_str(order) -> str:
+    """Normalize an order status (enum or str) to a bare lowercase token."""
+    return str(getattr(order, "status", "")).lower().split(".")[-1]
+
+
+def wait_for_fills(client, order_ids, timeout_s: float = _FILL_TIMEOUT_S,
+                   poll_s: float = _FILL_POLL_S, sleep=time.sleep) -> dict:
+    """Poll each order to a terminal state; return {order_id: status}.
+
+    Orders that do not settle within timeout_s are recorded as 'timeout' with a warning.
+    `sleep` is injectable so tests don't block.
+    """
+    statuses: dict = {}
+    if not order_ids:
+        return statuses
+    pending = set(order_ids)
+    deadline = time.monotonic() + timeout_s
+    while pending and time.monotonic() < deadline:
+        for oid in list(pending):
+            st = _status_str(client.get_order_by_id(oid))
+            if st in _TERMINAL_STATES:
+                statuses[oid] = st
+                pending.discard(oid)
+        if pending:
+            sleep(poll_s)
+    for oid in pending:
+        statuses[oid] = "timeout"
+        print(f"  WARNING: order {oid} did not reach a terminal state within {timeout_s:.0f}s")
+    return statuses
 
 
 def _get_client():
