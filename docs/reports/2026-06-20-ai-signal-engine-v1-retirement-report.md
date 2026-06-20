@@ -16,7 +16,7 @@ macro regime model, and executed on Alpaca paper.
 
 That number looks good against the broad market but **does not survive scrutiny**:
 
-- It **beat the S&P 500** (+14% vs +14%, but with ~2× the volatility) and **lost badly to
+- It **beat the S&P 500** (+16.6% vs +14%, but with ~2× the volatility) and **lost badly to
   the NASDAQ-100** (+27%), which is its true benchmark.
 - **58% of all profit came from a single position (MU)** that the model held at *below*
   equal weight — i.e. luck, not a sized conviction call.
