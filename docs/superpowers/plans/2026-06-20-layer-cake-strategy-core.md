@@ -453,9 +453,11 @@ def test_only_top_n_per_layer_selected():
 
 
 def test_name_cap_enforced():
+    # cap=0.30 is feasible with 5 selected names (5*0.30=1.5>=1.0) AND binds:
+    # P1 would naturally take ~0.396 of power's budget, so the cap must pull it down.
     scores = {"P1": 0.9, "P2": 0.01, "C1": 0.5, "C2": 0.4, "C3": 0.2, "C4": 0.1}
-    w = assemble_portfolio(BUDGETS, scores, LAYER_MAP, top_n=3, name_cap=0.12)
-    assert max(w.values()) <= 0.12 + 1e-9
+    w = assemble_portfolio(BUDGETS, scores, LAYER_MAP, top_n=3, name_cap=0.30)
+    assert max(w.values()) <= 0.30 + 1e-9
     assert sum(w.values()) == pytest.approx(1.0)
 
 
