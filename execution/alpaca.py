@@ -125,6 +125,46 @@ def get_account_snapshot(net_deposits: float = 100_000.0) -> Optional[dict]:
     }
 
 
+def execute_sells(target_weights: dict, cash_buffer: float = 0.0, client=None) -> list:
+    """Friday leg: trim/close positions down to (1-cash_buffer)-scaled targets."""
+    if client is None:
+        client = _get_client()
+    if not client:
+        print("  WARNING: Alpaca credentials not set — skipping sells")
+        return []
+
+    account = client.get_account()
+    portfolio_value = float(account.portfolio_value)
+    scale = 1.0 - cash_buffer
+    targets = {t: w * portfolio_value * scale for t, w in target_weights.items()}
+
+    order_ids = []
+    for p in client.get_all_positions():
+        sym = p.symbol
+        current = float(p.market_value)
+        target_val = targets.get(sym, 0.0)
+        excess = current - target_val
+        if excess <= _MIN_ORDER_VALUE:
+            continue
+        try:
+            if sym not in target_weights:
+                order = client.close_position(sym)
+            else:
+                order = client.submit_order(MarketOrderRequest(
+                    symbol=sym, notional=round(excess, 2),
+                    side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
+            oid = getattr(order, "id", None)
+            if oid:
+                order_ids.append(oid)
+            time.sleep(_ORDER_DELAY_S)
+        except Exception as e:
+            print(f"  WARNING: sell failed for {sym}: {e}")
+
+    wait_for_fills(client, order_ids)
+    print(f"  Sells complete | {len(order_ids)} orders submitted")
+    return order_ids
+
+
 def rebalance(long_weights: dict, net_exposure_target: float) -> None:
     """Rebalance Alpaca paper account to target long weights.
 
