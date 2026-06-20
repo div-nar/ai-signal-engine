@@ -122,6 +122,35 @@ the conviction IC) all agree: **no demonstrable stock-selection alpha.**
 
 ---
 
+## 5a. Overlap with the benchmarks
+
+How much of the engine was just "the AI-infra slice of the index"?
+
+- **Reliable measure (reconstructed book, ex-MU, daily):** correlation to QQQ **0.74**, daily
+  win rate **49%**. The strategy *was* QQQ's AI-infra names, tracked closely and slightly
+  worse — a closet index with extra turnover, not a differentiated book.
+- **Live-equity-series measure (unreliable):** the Alpaca paper daily-equity returns show
+  near-zero correlation/beta to both benchmarks — **S&P 500: corr 0.15, β 0.34, R² 0.02** and
+  **NASDAQ-100: corr 0.05, β 0.08, R² 0.00**. These are implausibly low for an AI-infra book
+  (which cannot truly be uncorrelated to the NASDAQ) and are an artifact of noisy daily marks
+  in the paper feed. **Any CAPM "alpha" derived from this ~0 beta is meaningless and is not
+  reported here** — the reconstructed 0.74 figure is the honest overlap.
+
+## 5b. Ablations summary
+
+Every independent test we ran points the same way — no selection edge once MU is removed:
+
+| Ablation | Method | Result |
+|---|---|---|
+| Full-period reconstruction | Daily holdings × prices, fully invested, frictionless | All +35.7% / **ex-MU +23.5%** vs QQQ +26.0% → ex-MU **−2.5 pts** |
+| Signal-weight backtest (May–Jun) | Hold each signal's basket to next signal | With-MU −1.2 pts vs QQQ (25% period win); **ex-MU −4.3 pts** (33% win) |
+| Conviction information coefficient | Spearman rank IC, conviction vs forward return, 125 obs | **IC ≈ −0.008**; top-conviction tercile did *worse* than bottom |
+| MU sizing | Avg portfolio weight of the one big winner | **7.9%** — *below* the 10% equal-weight baseline → luck, not a sized call |
+| Benchmark overlap | Daily correlation, reconstructed ex-MU book | **0.74 to QQQ** — closet-indexed the NASDAQ's AI names |
+
+The convergence of these — different windows, different methods — is why the conclusion is
+held with confidence despite the short track record.
+
 ## 6. Operational issues observed
 
 - **Double-firing:** a launchd job and an execution cron both submitted full rebalances
