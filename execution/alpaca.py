@@ -165,6 +165,46 @@ def execute_sells(target_weights: dict, cash_buffer: float = 0.0, client=None) -
     return order_ids
 
 
+def execute_buys(target_weights: dict, cash_buffer: float = 0.0, client=None) -> list:
+    """Monday leg: buy underweight names toward (1-cash_buffer)-scaled targets, cash-capped."""
+    if client is None:
+        client = _get_client()
+    if not client:
+        print("  WARNING: Alpaca credentials not set — skipping buys")
+        return []
+
+    account = client.get_account()
+    portfolio_value = float(account.portfolio_value)
+    remaining_cash = float(account.cash)
+    scale = 1.0 - cash_buffer
+    targets = {t: w * portfolio_value * scale for t, w in target_weights.items()}
+    current = {p.symbol: float(p.market_value) for p in client.get_all_positions()}
+
+    order_ids = []
+    for sym, target_val in targets.items():
+        deficit = target_val - current.get(sym, 0.0)
+        if deficit <= _MIN_ORDER_VALUE:
+            continue
+        notional = min(deficit, remaining_cash)
+        if notional < _MIN_ORDER_VALUE:
+            continue
+        try:
+            order = client.submit_order(MarketOrderRequest(
+                symbol=sym, notional=round(notional, 2),
+                side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
+            remaining_cash -= notional
+            oid = getattr(order, "id", None)
+            if oid:
+                order_ids.append(oid)
+            time.sleep(_ORDER_DELAY_S)
+        except Exception as e:
+            print(f"  WARNING: buy failed for {sym}: {e}")
+
+    wait_for_fills(client, order_ids)
+    print(f"  Buys complete | {len(order_ids)} orders submitted")
+    return order_ids
+
+
 def rebalance(long_weights: dict, net_exposure_target: float) -> None:
     """Rebalance Alpaca paper account to target long weights.
 
