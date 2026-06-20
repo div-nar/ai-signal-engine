@@ -6,7 +6,13 @@ import yfinance as yf
 def load_price_panel(tickers: list[str], start: str, end: str) -> pd.DataFrame:
     """Daily adjusted close panel via yfinance, index ascending, columns=tickers."""
     data = yf.download(tickers, start=start, end=end, auto_adjust=True, progress=False)
-    close = data["Close"] if isinstance(data.columns, pd.MultiIndex) else data
+    if isinstance(data.columns, pd.MultiIndex):
+        close = data["Close"]
+    else:
+        # Single ticker: flat columns (Open/High/Low/Close/...). Select Close and
+        # label the column with the ticker so the panel shape is consistent.
+        close = data[["Close"]].copy()
+        close.columns = [tickers[0] if isinstance(tickers, list) else tickers]
     return close.dropna(how="all").sort_index()
 
 
