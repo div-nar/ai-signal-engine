@@ -648,7 +648,7 @@ Expected: PASS (4 tests)
 
 - [ ] **Step 5: Create the launchd plists and README**
 
-Create `ops/launchd/com.divnar.layercake.passive.plist` (daily 18:00 IST, Mon–Fri — ingest + compute target, no trades):
+Create `ops/launchd/com.divnar.layercake.passive.plist` (18:00 IST, **Tue–Fri only** — ingest + compute target, no trades. Monday is excluded so the Monday buy leg executes against Friday's *locked* target rather than a freshly recomputed one):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -663,7 +663,6 @@ Create `ops/launchd/com.divnar.layercake.passive.plist` (daily 18:00 IST, Mon–
     </array>
     <key>StartCalendarInterval</key>
     <array>
-        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
         <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
         <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
         <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
@@ -742,7 +741,7 @@ Install:
     launchctl load ~/Library/LaunchAgents/com.divnar.layercake.buy.plist
 
 Cadence (host is on IST; times are EDT-correct, ~1h earlier in EST — still pre/at-open):
-- passive: Mon–Fri 18:00 IST — ingest + compute/persist target, NO trades
+- passive: Tue–Fri 18:00 IST — ingest + compute/persist target, NO trades (Monday excluded so the buy leg uses Friday's locked target)
 - sell:    Fri 18:30 IST (~09:00 ET) — compute+persist target, execute sells
 - buy:     Mon 19:00 IST (~09:30 ET open) — execute buys from the latest target
 
