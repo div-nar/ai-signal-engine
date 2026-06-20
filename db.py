@@ -1,4 +1,5 @@
 # ai-signal-engine/db.py
+import json
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -203,3 +204,68 @@ def insert_signal(db_path: str, data: dict) -> int:
     conn.commit()
     conn.close()
     return cursor.lastrowid
+
+
+def init_targets_table(db_path: str = str(DEFAULT_DB)) -> None:
+    """Create the weekly-target table (idempotent)."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS targets (
+            id             INTEGER PRIMARY KEY,
+            computed_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            layer_tilt     TEXT,
+            layer_budgets  TEXT,
+            target_weights TEXT,
+            market_regime  TEXT,
+            thesis_update  TEXT,
+            regime_shift   INTEGER DEFAULT 0
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def insert_target(db_path: str, data: dict) -> int:
+    """Persist one weekly target. Dict fields are JSON-encoded."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute(
+        """INSERT INTO targets
+           (layer_tilt, layer_budgets, target_weights, market_regime,
+            thesis_update, regime_shift)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            json.dumps(data.get("layer_tilt", {})),
+            json.dumps(data.get("layer_budgets", {})),
+            json.dumps(data.get("target_weights", {})),
+            data.get("market_regime", ""),
+            data.get("thesis_update", ""),
+            int(bool(data.get("regime_shift", False))),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return cursor.lastrowid
+
+
+def get_latest_target(db_path: str = str(DEFAULT_DB)) -> dict | None:
+    """Most recent target row with JSON fields parsed, or None."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT * FROM targets ORDER BY computed_at DESC, id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "computed_at": row["computed_at"],
+        "layer_tilt": json.loads(row["layer_tilt"] or "{}"),
+        "layer_budgets": json.loads(row["layer_budgets"] or "{}"),
+        "target_weights": json.loads(row["target_weights"] or "{}"),
+        "market_regime": row["market_regime"],
+        "thesis_update": row["thesis_update"],
+        "regime_shift": bool(row["regime_shift"]),
+    }
