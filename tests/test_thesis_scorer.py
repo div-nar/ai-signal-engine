@@ -30,7 +30,7 @@ def _resp(tilt, regime="compute_constrained", shift=True):
 def test_budgets_within_bounds_and_sum_one():
     client = FakeClient(_resp({"compute": 0.30, "platform": -0.30}))
     out = score_layer_thesis([{"id": 1, "content": "x", "title": "t", "source": "rss"}],
-                             client=client)
+                             client=client, autonomy="guardrailed")
     b = out["layer_budgets"]
     assert sum(b.values()) == pytest.approx(1.0)
     assert all(LAYER_FLOOR - 1e-9 <= v <= LAYER_CEILING + 1e-9 for v in b.values())

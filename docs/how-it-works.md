@@ -7,8 +7,18 @@ equity portfolio, executed on Alpaca paper trading. The thesis is Aschenbrenner'
 an exponential compute trajectory driven by a **physical buildout supercycle** — power, silicon,
 chips, datacenters, and the software that captures the value on top.
 
-The design principle, learned the hard way from the retired v1 engine (see the
-[retirement report](reports/2026-06-20-ai-signal-engine-v1-retirement-report.md)), is:
+The engine has two autonomy modes (`config.LLM_AUTONOMY`, currently **full**):
+
+- **`full`** — the LLM is the portfolio manager. It sees the current book, the momentum
+  ranks, the research, and its own past theses; searches the vector archive with its own
+  queries; and may author the target weights directly. No numeric clamps — *trade sensibly*
+  is enforced by prompt (long-only, no leverage, turnover-aware, catalyst-required
+  concentration, universe-restricted), and every decision is persisted for ablation.
+- **`guardrailed`** — the bounded decision surface described below, with every dial clamped
+  in code. One config line switches back.
+
+The guardrailed design principle, learned the hard way from the retired v1 engine (see the
+[retirement report](reports/2026-06-20-ai-signal-engine-v1-retirement-report.md)), was:
 
 > **The LLM directs the portfolio only through a bounded, clamped, fully-logged decision
 > surface — and the spine of name selection stays mechanical, low-churn, and reliably
@@ -125,11 +135,19 @@ persisted target. Its final answer is strict JSON over the whole decision surfac
 }
 ```
 
-Guardrails (mechanical, non-negotiable): tilts recentered to sum to exactly zero; budgets
-clamped to [8%, 35%]; `layer_top_n` clamped to [2, 4]; `name_adjustments` restricted to the
-thesis universe and clamped to [0.5×, 1.5×] (0 = veto for the week); `cash_buffer` clamped to
-[0, 30%]. After the target persists, the thesis is embedded back into `macro_signals` so next
-week's pass remembers it.
+Guardrails in `guardrailed` mode: tilts recentered to sum to exactly zero; budgets clamped to
+[8%, 35%]; `layer_top_n` clamped to [2, 4]; `name_adjustments` restricted to the thesis
+universe and clamped to [0.5×, 1.5×] (0 = veto); `cash_buffer` clamped to [0, 30%].
+
+In **full autonomy** the same JSON gains an optional `"target_weights"` field — the complete
+desired book, used directly instead of the dial pipeline. Validation is correctness-only
+(tickers must be in `TICKER_UNIVERSE` so hallucinated symbols never reach the broker; weights
+positive; normalized to 1 with any shortfall held as implied cash) — no clamps. If the LLM
+stays with dials, the pipeline runs unclamped (all-in-one-layer allowed, any top-n, any cash
+level). `weights_source` records which path produced each target.
+
+After the target persists, the thesis is embedded back into `macro_signals` so the next pass
+remembers it.
 
 ## 3. Layer budgets (`strategy/budgets.py`)
 
@@ -175,22 +193,25 @@ a **fully-invested** target of ~10–16 names (replacing v1's chronic ~73% net-e
 
 ## 7. Execution & cadence (`execution/alpaca.py`, `ops/launchd/`)
 
-A single weekly decision path, driven by three launchd jobs — plus an on-demand mode:
+**Daily cadence (current):** one launchd job runs `--mode trade` every market morning
+(Mon–Fri ~09:30 ET). Each run ingests research, runs the agentic thesis pass, persists the
+target, and — if the LLM says the move is worth its churn — executes sells (fill-verified)
+then buys in the same session, no weekend gap. The LLM's `rebalance_urgency` is the daily
+throttle: on an unchanged thesis it answers `"hold"` and the day is zero-churn. On-demand runs
+any time with `./run.sh --mode trade` (`--force` bypasses the gate).
 
-| Job | When | Mode | Action |
-|---|---|---|---|
-| passive | Tue–Fri, PM | `passive` | ingest research, run thesis pass, compute + persist the weekly target — **no trades** |
-| sell | Friday, PM | `sell` | lock the target, execute the **sell** leg (trims/exits) |
-| buy | Monday, PM | `buy` | execute the **buy** leg into freed-up cash, record a portfolio snapshot |
-| — | any day, on demand | `trade` | full same-day rebalance: sells (fill-verified) then buys in one session; `--force` bypasses the trade gate |
+The weekly split (passive Tue–Fri / sells Friday / buys Monday) remains available as a legacy
+alternative — see `ops/launchd/README.md`; only one path is ever loaded at a time.
 
-`trade` is user discretion: run it manually whenever the thesis or the market demands a
-same-day move rather than waiting for the Friday/Monday window (it can also be scheduled
-daily if you want a daily cadence — the trade gate keeps no-drift days at zero churn). The
-weekly rotated slice sits in cash over the weekend (accepted — small for a low-turnover
-book); `trade` avoids the weekend gap entirely. Each leg polls Alpaca until every order is
-filled or rejected, and surfaces anything stuck — fixing v1's silent "accepted-but-unfilled"
-failures.
+| Mode | Action |
+|---|---|
+| `passive` | ingest research, thesis pass, compute + persist target — **no trades** |
+| `sell` | compute + persist target, execute the **sell** leg |
+| `buy` | execute the **buy** leg from the latest persisted target, record a snapshot |
+| `trade` | full same-day rebalance: sells then buys in one session (daily driver) |
+
+Each leg polls Alpaca until every order is filled or rejected, and surfaces anything stuck —
+fixing v1's silent "accepted-but-unfilled" failures.
 
 ---
 

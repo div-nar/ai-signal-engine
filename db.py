@@ -215,6 +215,8 @@ _TARGETS_EXTRA_COLUMNS = {
     "rebalance_urgency": "TEXT",    # urgent | normal | hold
     "retrieval_log": "TEXT",        # JSON — agentic retrieval trace (for ablation)
     "trade_gate": "TEXT",           # traded | skipped_hold | skipped_within_bands
+    "autonomy": "TEXT",             # full | guardrailed (mode that produced this target)
+    "weights_source": "TEXT",       # llm_direct | dial_pipeline
 }
 
 
@@ -250,8 +252,9 @@ def insert_target(db_path: str, data: dict) -> int:
         """INSERT INTO targets
            (layer_tilt, layer_budgets, target_weights, market_regime,
             thesis_update, regime_shift, layer_top_n, name_adjustments,
-            cash_buffer, rebalance_urgency, retrieval_log)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            cash_buffer, rebalance_urgency, retrieval_log, autonomy,
+            weights_source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             json.dumps(data.get("layer_tilt", {})),
             json.dumps(data.get("layer_budgets", {})),
@@ -264,6 +267,8 @@ def insert_target(db_path: str, data: dict) -> int:
             float(data.get("cash_buffer", 0.0)),
             data.get("rebalance_urgency", "normal"),
             json.dumps(data.get("retrieval_log", [])),
+            data.get("autonomy", ""),
+            data.get("weights_source", ""),
         ),
     )
     conn.commit()
@@ -297,6 +302,8 @@ def get_latest_target(db_path: str = str(DEFAULT_DB)) -> dict | None:
         "rebalance_urgency": (row["rebalance_urgency"] if "rebalance_urgency" in keys else None) or "normal",
         "retrieval_log": json.loads((row["retrieval_log"] if "retrieval_log" in keys else None) or "[]"),
         "trade_gate": (row["trade_gate"] if "trade_gate" in keys else None) or "",
+        "autonomy": (row["autonomy"] if "autonomy" in keys else None) or "",
+        "weights_source": (row["weights_source"] if "weights_source" in keys else None) or "",
     }
 
 

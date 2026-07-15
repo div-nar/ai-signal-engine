@@ -83,7 +83,7 @@ def test_expanded_fields_clamped_and_returned():
     client = ScriptedClient([_final(cash_buffer=0.9, layer_top_n={"compute": 9, "bogus": 3},
                                     name_adjustments={"NVDA": 5.0, "FAKE": 1.2},
                                     rebalance_urgency="panic")])
-    out = score_layer_thesis([], client=client)
+    out = score_layer_thesis([], client=client, autonomy="guardrailed")
     assert out["cash_buffer"] == pytest.approx(0.30)          # clamped
     assert out["layer_top_n"] == {"compute": 9}               # unknown layer dropped (clamp at use)
     assert "FAKE" not in out["name_adjustments"]              # outside universe

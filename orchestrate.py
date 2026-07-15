@@ -5,14 +5,16 @@ query the research vector store before deciding, its recent thesis history is
 fed back as memory, and each new thesis is written to the store. Trading is
 gated by the LLM's rebalance urgency + mechanical drift bands (strategy.risk).
 """
+import config
 from config import DB_PATH
 from db import (init_targets_table, insert_target, get_latest_target,
                 update_target_gate)
-from strategy.layers import LAYER_MAP
+from strategy.layers import LAYER_MAP, LAYERS, tickers_in_layer
 from strategy.risk import needs_rebalance
+from strategy.factors import momentum_scores, apply_name_adjustments
+from strategy.assemble import assemble_portfolio
 from scoring.thesis_scorer import score_layer_thesis, DOCS_PER_QUERY
 from pricing.history import fetch_recent_closes
-from strategy.pipeline import build_target_portfolio
 from execution.alpaca import execute_sells, execute_buys, get_alpaca_positions
 
 
@@ -64,14 +66,47 @@ def _remember_thesis(chroma_client, target_id: int, target: dict) -> None:
         print(f"  WARNING: thesis memory write failed (non-fatal): {exc}")
 
 
+def _momentum_by_layer(scores: dict[str, float]) -> dict[str, list]:
+    """Rank scored tickers within each layer, best first (prompt context)."""
+    return {
+        layer: sorted(((t, scores[t]) for t in tickers_in_layer(layer) if t in scores),
+                      key=lambda ts: -ts[1])
+        for layer in LAYERS
+    }
+
+
 def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
                           thesis_client=None, data_client=None,
                           persist: bool = True, now=None,
-                          chroma_client=None) -> dict:
-    """Run thesis -> budgets -> momentum pipeline and (optionally) persist the target."""
+                          chroma_client=None, exec_client=None,
+                          autonomy: str | None = None) -> dict:
+    """Run the thesis -> target pipeline and (optionally) persist the target.
+
+    Guardrailed autonomy: thesis dials -> clamped budgets -> momentum pipeline.
+    Full autonomy: the LLM sees the current book + momentum ranks and may
+    author `target_weights` directly (validated, normalized); if it stays with
+    dials, the same pipeline runs unclamped.
+    """
     init_targets_table(db_path)
     prior = get_latest_target(db_path)
     prev_budgets = prior["layer_budgets"] if prior else {}
+    if autonomy is None:
+        autonomy = getattr(config, "LLM_AUTONOMY", "guardrailed")
+    full = autonomy == "full"
+
+    tickers = sorted(LAYER_MAP)
+    prices = fetch_recent_closes(tickers, client=data_client, now=now)
+    scores = {}
+    if prices is not None and not prices.empty:
+        scores = momentum_scores(prices, prices.index[-1])
+
+    portfolio_context = None
+    if full:
+        portfolio_context = {
+            "positions": get_alpaca_positions(client=exec_client)["longs"],
+            "momentum": _momentum_by_layer(scores),
+            "universe": getattr(config, "TICKER_UNIVERSE", sorted(LAYER_MAP)),
+        }
 
     thesis = score_layer_thesis(
         docs,
@@ -79,15 +114,23 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
         client=thesis_client,
         retriever=_make_retriever(chroma_client),
         signal_memory=_fetch_signal_memory(chroma_client, prior),
+        portfolio_context=portfolio_context,
+        autonomy=autonomy,
     )
 
-    tickers = sorted(LAYER_MAP)
-    prices = fetch_recent_closes(tickers, client=data_client, now=now)
-    weights = build_target_portfolio(
-        thesis["layer_budgets"], prices, LAYER_MAP,
-        top_n=thesis["layer_top_n"] or 3,
-        name_adjustments=thesis["name_adjustments"],
-    )
+    if thesis["target_weights_direct"]:
+        weights = thesis["target_weights_direct"]
+    elif not scores:
+        weights = {}
+    else:
+        adj = thesis["name_adjustments"]
+        adj_scores = apply_name_adjustments(scores, adj, clamp=not full) if adj else scores
+        weights = assemble_portfolio(
+            thesis["layer_budgets"], adj_scores, LAYER_MAP,
+            top_n=thesis["layer_top_n"] or 3,
+            name_cap=1.0 if full else 0.12,
+            clamp_dial=not full,
+        ) if adj_scores else {}
 
     target = {
         "layer_tilt": thesis["layer_tilt"],
@@ -101,6 +144,8 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
         "cash_buffer": thesis["cash_buffer"],
         "rebalance_urgency": thesis["rebalance_urgency"],
         "signal_confidence": thesis["signal_confidence"],
+        "autonomy": thesis["autonomy"],
+        "weights_source": "llm_direct" if thesis["target_weights_direct"] else "dial_pipeline",
         "retrieval_log": thesis["retrieval_log"],
     }
     # Never persist a degenerate (empty) target: an empty book would become next
@@ -138,7 +183,7 @@ def run_sell(docs: list[dict], db_path: str = DB_PATH, thesis_client=None,
     """
     target = compute_weekly_target(docs, db_path=db_path, thesis_client=thesis_client,
                                    data_client=data_client, persist=True, now=now,
-                                   chroma_client=chroma_client)
+                                   chroma_client=chroma_client, exec_client=exec_client)
     weights = target.get("target_weights") or {}
     if not weights:
         print("  No target weights — skipping sells")

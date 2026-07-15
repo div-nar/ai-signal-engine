@@ -32,19 +32,22 @@ IC ≈ −0.008), the book closet-indexed QQQ with extra churn, the headline +16
 name (MU, 58% of P&L, never conviction-sized), and ~20 points were lost to cash drag and
 execution failures.
 
-The Layer Cake redesign keeps the AI-infrastructure thesis but changes **who decides what**:
+The Layer Cake redesign keeps the AI-infrastructure thesis but changes **who decides what**.
+The LLM reads the research **agentically** — it searches the engine's vector archive (ChromaDB)
+with its own queries, recalls its own past theses, and sees the current book plus momentum
+ranks — then directs the portfolio. Two autonomy modes (`config.LLM_AUTONOMY`):
 
-> Momentum ranks the names. The LLM directs the portfolio only through a **bounded, clamped,
-> fully-logged decision surface** — so every judgment it makes can later be ablated against
-> the pure-mechanical baseline.
+- **`full` (current):** the LLM is the portfolio manager — it may author the target weights
+  outright (long-only, universe-restricted; no other clamps). *Trade sensibly* is enforced by
+  prompt: turnover-aware, catalyst-required concentration, cash as a position. Every decision
+  — weights, queries, urgency — is persisted per-target for ablation.
+- **`guardrailed`:** the bounded dial surface — layer tilts (budgets clamped [8%, 35%]),
+  per-layer concentration (2–4 names), name emphasis/veto (0.5×–1.5× on momentum), cash
+  buffer ≤30% — with momentum assembling the book mechanically.
 
-The portfolio is a five-layer value chain, physical → value-capture. The LLM reads the research
-**agentically** — it can search the engine's vector archive (ChromaDB) with its own queries and
-recalls its own past theses — then outputs: layer tilts, per-layer concentration (2–4 names),
-bounded name emphasis/veto (0.5×–1.5× on momentum), a cash buffer for systemic stress (≤30%),
-and a rebalance urgency that gates whether the week trades at all. Cadence is weekly
-(Friday sells → Monday buys) with an on-demand `--mode trade` for same-day rebalances at
-user discretion (`--force` to override the gate).
+Cadence is **daily at the open** (`--mode trade`: sells then buys in one session), throttled by
+the LLM's own rebalance urgency — an unchanged thesis means a zero-churn day. `--force`
+overrides the gate; a legacy weekly split (Friday sells → Monday buys) remains available.
 
 | # | Layer | Role |
 |---|-------|------|

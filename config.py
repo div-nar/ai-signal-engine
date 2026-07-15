@@ -87,6 +87,19 @@ MIN_HEDGE_SECTOR_WEIGHT = 0.02
 MAX_TURNOVER_VS_PREV = 0.20
 WEIGHT_SUM_TOLERANCE = 0.01
 
+# ── LLM autonomy ───────────────────────────────────────────────────────────────
+# "full":        the LLM is the portfolio manager. It may output target weights
+#                directly (long-only, within TICKER_UNIVERSE), all numeric
+#                clamps are off, and "trade sensibly" is enforced by prompt,
+#                not code. Every decision is still persisted for ablation.
+# "guardrailed": the bounded decision surface (tilt clamps [8%,35%], top-n
+#                [2,4], name emphasis [0.5x,1.5x], cash <=30%).
+LLM_AUTONOMY = "full"
+# Agentic retrieval budget (rounds of follow-up queries against ChromaDB).
+LLM_SEARCH_MAX_ROUNDS = 5
+LLM_SEARCH_MAX_QUERIES = 5
+LLM_DOCS_PER_QUERY = 10
+
 # ── Performance accounting ─────────────────────────────────────────────────────
 # Net capital deposited into the (paper) account, used as the cost basis for
 # total-return math in portfolio snapshots. No top-ups/withdrawals to date.
