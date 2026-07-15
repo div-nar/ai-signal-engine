@@ -34,13 +34,17 @@ execution failures.
 
 The Layer Cake redesign keeps the AI-infrastructure thesis but changes **who decides what**:
 
-> The LLM does only the one job it might do well — reading the value-chain thesis at the
-> **layer** level. Everything below that is mechanical, fully invested, low-churn, and
-> reliably executed.
+> Momentum ranks the names. The LLM directs the portfolio only through a **bounded, clamped,
+> fully-logged decision surface** — so every judgment it makes can later be ablated against
+> the pure-mechanical baseline.
 
-The portfolio is a five-layer value chain, physical → value-capture. The LLM's *entire* output
-is a set of **layer tilts** (how much to over/underweight each layer) plus a regime flag — never
-per-name weights. Below the layer line, a mechanical momentum model picks the names.
+The portfolio is a five-layer value chain, physical → value-capture. The LLM reads the research
+**agentically** — it can search the engine's vector archive (ChromaDB) with its own queries and
+recalls its own past theses — then outputs: layer tilts, per-layer concentration (2–4 names),
+bounded name emphasis/veto (0.5×–1.5× on momentum), a cash buffer for systemic stress (≤30%),
+and a rebalance urgency that gates whether the week trades at all. Cadence is weekly
+(Friday sells → Monday buys) with an on-demand `--mode trade` for same-day rebalances at
+user discretion (`--force` to override the gate).
 
 | # | Layer | Role |
 |---|-------|------|
@@ -51,11 +55,11 @@ per-name weights. Below the layer line, a mechanical momentum model picks the na
 | 5 | **Platform & Application** | hyperscalers & software (QQQ's core) |
 
 ```
-Ingest ─► LLM thesis pass ─► layer budgets ─► momentum-rank within each layer
-(RSS/HF/EDGAR)  (5 tilts +      (baseline ±      (top 3, cap 12%/name,
-                regime flag)    tilt, clamped)    fully invested)
-                                                        │
-                                    weekly: Friday sells ─► Monday buys (fill-verified)
+Ingest ─► ChromaDB ─► agentic LLM ─► layer budgets ─► momentum rank ─► trade gate
+(RSS/HF/EDGAR) (semantic  thesis pass    (baseline ±       (top 2–4/layer,   (urgency ×
+                archive)  (searches +     tilt, clamped     cap 12%/name)     drift bands)
+                          remembers)      [8%,35%])                                │
+                                          weekly: Friday sells ─► Monday buys (fill-verified)
 ```
 
 The structural tilt overweights layers 1–4 (which QQQ barely holds) and underweights layer 5

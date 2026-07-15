@@ -65,9 +65,10 @@ def _wait_for_cancels(client):
     print("  WARNING: open orders still present after cancel timeout — proceeding anyway")
 
 
-def get_alpaca_positions() -> dict:
+def get_alpaca_positions(client=None) -> dict:
     """Return current paper portfolio as {longs, net_exposure, gross_exposure, portfolio_value}."""
-    client = _get_client()
+    if client is None:
+        client = _get_client()
     if not client:
         return {"longs": {}, "net_exposure": 0.0, "gross_exposure": 0.0, "portfolio_value": 0.0}
 

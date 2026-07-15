@@ -16,11 +16,29 @@ def _cap_and_normalize(weights: dict[str, float], name_cap: float) -> dict[str, 
     return w
 
 
+TOP_N_MIN = 2
+TOP_N_MAX = 4
+TOP_N_DEFAULT = 3
+
+
+def _layer_top_n(top_n, layer: str) -> int:
+    """Resolve top_n for a layer. A plain int applies everywhere, unclamped
+    (programmatic callers know what they want). A dict is the LLM's per-layer
+    concentration dial and is clamped to [2, 4] — guardrail, not suggestion."""
+    if not isinstance(top_n, dict):
+        return int(top_n)
+    try:
+        n = int(top_n.get(layer, TOP_N_DEFAULT))
+    except (TypeError, ValueError):
+        return TOP_N_DEFAULT
+    return min(max(n, TOP_N_MIN), TOP_N_MAX)
+
+
 def assemble_portfolio(
     budgets: dict[str, float],
     factor_scores: dict[str, float],
     layer_map: dict[str, str],
-    top_n: int = 3,
+    top_n: int | dict = TOP_N_DEFAULT,
     name_cap: float = 0.12,
 ) -> dict[str, float]:
     """Fully-invested weights: top_n per layer, budget split by factor score, name-capped."""
@@ -29,7 +47,7 @@ def assemble_portfolio(
         if budget <= 0:
             continue
         layer_tickers = [t for t, lyr in layer_map.items() if lyr == layer]
-        ranked = rank_within_layer(layer_tickers, factor_scores, top_n)
+        ranked = rank_within_layer(layer_tickers, factor_scores, _layer_top_n(top_n, layer))
         if not ranked:
             continue
         shifted = {t: max(factor_scores[t], 0.0) for t in ranked}

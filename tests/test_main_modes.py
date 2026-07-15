@@ -28,20 +28,32 @@ def test_dispatch_unknown_raises():
                  run_buy_fn=MagicMock(), gather_docs=MagicMock(), record_snapshot=MagicMock())
 
 
-def test_dispatch_passive_passes_gathered_docs():
+def test_dispatch_passive_passes_gathered_docs_and_chroma():
     docs = [{"id": 1}]
-    passive = MagicMock()
+    passive, chroma = MagicMock(), MagicMock()
     dispatch("passive", run_passive=passive, run_sell_fn=MagicMock(), run_buy_fn=MagicMock(),
-             gather_docs=lambda: docs, record_snapshot=MagicMock())
-    passive.assert_called_once_with(docs)
+             gather_docs=lambda: docs, record_snapshot=MagicMock(),
+             init_chroma_fn=lambda: chroma)
+    passive.assert_called_once_with(docs, chroma_client=chroma)
 
 
-def test_dispatch_sell_passes_gathered_docs():
+def test_dispatch_sell_passes_gathered_docs_and_chroma():
     docs = [{"id": 2}]
     sell_fn = MagicMock()
     dispatch("sell", run_passive=MagicMock(), run_sell_fn=sell_fn, run_buy_fn=MagicMock(),
-             gather_docs=lambda: docs, record_snapshot=MagicMock())
-    sell_fn.assert_called_once_with(docs)
+             gather_docs=lambda: docs, record_snapshot=MagicMock(),
+             init_chroma_fn=lambda: None)
+    sell_fn.assert_called_once_with(docs, chroma_client=None)
+
+
+def test_dispatch_chroma_failure_downgrades_to_none():
+    # init_chroma_fn returning None (store unavailable) must not block the run.
+    docs = [{"id": 3}]
+    passive = MagicMock()
+    dispatch("passive", run_passive=passive, run_sell_fn=MagicMock(), run_buy_fn=MagicMock(),
+             gather_docs=lambda: docs, record_snapshot=MagicMock(),
+             init_chroma_fn=lambda: None)
+    passive.assert_called_once_with(docs, chroma_client=None)
 
 
 def test_dispatch_buy_records_snapshot():
