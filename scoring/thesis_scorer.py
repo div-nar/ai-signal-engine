@@ -289,9 +289,19 @@ def build_thesis_prompt(docs: list[dict], prev_budgets: dict, macro_signal: dict
     if ctx:
         parts.append(ctx)
     parts.append("### RESEARCH SIGNALS (seed)")
-    parts.append(_format_docs(docs))
-    parts.append("\n[TASK] Search the archive if you need more evidence, otherwise "
-                 "output the final thesis JSON now.")
+    if docs:
+        parts.append(_format_docs(docs))
+        parts.append("\n[TASK] Search the archive if you need more evidence, otherwise "
+                     "output the final thesis JSON now.")
+    else:
+        parts.append(
+            "NONE PROVIDED. You have zero research evidence right now — nothing to\n"
+            "ground a thesis in. Do not answer from general knowledge or prior\n"
+            "training; that is exactly how the predecessor fund failed (confident,\n"
+            "ungrounded conviction). You MUST search the archive first."
+        )
+        parts.append('\n[TASK] Reply with a search action now: '
+                     '{"action": "search", "queries": [...]}')
     return "\n".join(parts)
 
 
