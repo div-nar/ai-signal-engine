@@ -32,15 +32,22 @@ IC ≈ −0.008), the book closet-indexed QQQ with extra churn, the headline +16
 name (MU, 58% of P&L, never conviction-sized), and ~20 points were lost to cash drag and
 execution failures.
 
-The Layer Cake redesign keeps the AI-infrastructure thesis but changes **who decides what**:
+The Layer Cake redesign keeps the AI-infrastructure thesis but changes **who decides what**.
+The LLM reads the research **agentically** — it searches the engine's vector archive (ChromaDB)
+with its own queries, recalls its own past theses, and sees the current book plus momentum
+ranks — then directs the portfolio. Two autonomy modes (`config.LLM_AUTONOMY`):
 
-> The LLM does only the one job it might do well — reading the value-chain thesis at the
-> **layer** level. Everything below that is mechanical, fully invested, low-churn, and
-> reliably executed.
+- **`full` (current):** the LLM is the portfolio manager — it may author the target weights
+  outright (long-only, universe-restricted; no other clamps). *Trade sensibly* is enforced by
+  prompt: turnover-aware, catalyst-required concentration, cash as a position. Every decision
+  — weights, queries, urgency — is persisted per-target for ablation.
+- **`guardrailed`:** the bounded dial surface — layer tilts (budgets clamped [8%, 35%]),
+  per-layer concentration (2–4 names), name emphasis/veto (0.5×–1.5× on momentum), cash
+  buffer ≤30% — with momentum assembling the book mechanically.
 
-The portfolio is a five-layer value chain, physical → value-capture. The LLM's *entire* output
-is a set of **layer tilts** (how much to over/underweight each layer) plus a regime flag — never
-per-name weights. Below the layer line, a mechanical momentum model picks the names.
+Cadence is **daily at the open** (`--mode trade`: sells then buys in one session), throttled by
+the LLM's own rebalance urgency — an unchanged thesis means a zero-churn day. `--force`
+overrides the gate; a legacy weekly split (Friday sells → Monday buys) remains available.
 
 | # | Layer | Role |
 |---|-------|------|
@@ -51,11 +58,11 @@ per-name weights. Below the layer line, a mechanical momentum model picks the na
 | 5 | **Platform & Application** | hyperscalers & software (QQQ's core) |
 
 ```
-Ingest ─► LLM thesis pass ─► layer budgets ─► momentum-rank within each layer
-(RSS/HF/EDGAR)  (5 tilts +      (baseline ±      (top 3, cap 12%/name,
-                regime flag)    tilt, clamped)    fully invested)
-                                                        │
-                                    weekly: Friday sells ─► Monday buys (fill-verified)
+Ingest ─► ChromaDB ─► agentic LLM ─► layer budgets ─► momentum rank ─► trade gate
+(RSS/HF/EDGAR) (semantic  thesis pass    (baseline ±       (top 2–4/layer,   (urgency ×
+                archive)  (searches +     tilt, clamped     cap 12%/name)     drift bands)
+                          remembers)      [8%,35%])                                │
+                                          weekly: Friday sells ─► Monday buys (fill-verified)
 ```
 
 The structural tilt overweights layers 1–4 (which QQQ barely holds) and underweights layer 5

@@ -206,8 +206,22 @@ def insert_signal(db_path: str, data: dict) -> int:
     return cursor.lastrowid
 
 
+# Columns added after the original targets schema shipped; init_targets_table
+# migrates existing DBs in place (ALTER TABLE is cheap and idempotent-guarded).
+_TARGETS_EXTRA_COLUMNS = {
+    "layer_top_n": "TEXT",          # JSON {layer: 2..4} — LLM concentration dial
+    "name_adjustments": "TEXT",     # JSON {ticker: 0 | 0.5..1.5} — LLM name emphasis/veto
+    "cash_buffer": "REAL DEFAULT 0",     # LLM risk stance, clamped [0, 0.30]
+    "rebalance_urgency": "TEXT",    # urgent | normal | hold
+    "retrieval_log": "TEXT",        # JSON — agentic retrieval trace (for ablation)
+    "trade_gate": "TEXT",           # traded | skipped_hold | skipped_within_bands
+    "autonomy": "TEXT",             # full | guardrailed (mode that produced this target)
+    "weights_source": "TEXT",       # llm_direct | dial_pipeline
+}
+
+
 def init_targets_table(db_path: str = str(DEFAULT_DB)) -> None:
-    """Create the weekly-target table (idempotent)."""
+    """Create the weekly-target table (idempotent) and migrate older schemas."""
     conn = sqlite3.connect(db_path)
     conn.execute(
         """
@@ -223,6 +237,10 @@ def init_targets_table(db_path: str = str(DEFAULT_DB)) -> None:
         )
         """
     )
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(targets)")}
+    for col, decl in _TARGETS_EXTRA_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE targets ADD COLUMN {col} {decl}")
     conn.commit()
     conn.close()
 
@@ -233,8 +251,10 @@ def insert_target(db_path: str, data: dict) -> int:
     cursor = conn.execute(
         """INSERT INTO targets
            (layer_tilt, layer_budgets, target_weights, market_regime,
-            thesis_update, regime_shift)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+            thesis_update, regime_shift, layer_top_n, name_adjustments,
+            cash_buffer, rebalance_urgency, retrieval_log, autonomy,
+            weights_source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             json.dumps(data.get("layer_tilt", {})),
             json.dumps(data.get("layer_budgets", {})),
@@ -242,6 +262,13 @@ def insert_target(db_path: str, data: dict) -> int:
             data.get("market_regime", ""),
             data.get("thesis_update", ""),
             int(bool(data.get("regime_shift", False))),
+            json.dumps(data.get("layer_top_n", {})),
+            json.dumps(data.get("name_adjustments", {})),
+            float(data.get("cash_buffer", 0.0)),
+            data.get("rebalance_urgency", "normal"),
+            json.dumps(data.get("retrieval_log", [])),
+            data.get("autonomy", ""),
+            data.get("weights_source", ""),
         ),
     )
     conn.commit()
@@ -259,6 +286,7 @@ def get_latest_target(db_path: str = str(DEFAULT_DB)) -> dict | None:
     conn.close()
     if row is None:
         return None
+    keys = row.keys()
     return {
         "id": row["id"],
         "computed_at": row["computed_at"],
@@ -268,4 +296,21 @@ def get_latest_target(db_path: str = str(DEFAULT_DB)) -> dict | None:
         "market_regime": row["market_regime"],
         "thesis_update": row["thesis_update"],
         "regime_shift": bool(row["regime_shift"]),
+        "layer_top_n": json.loads((row["layer_top_n"] if "layer_top_n" in keys else None) or "{}"),
+        "name_adjustments": json.loads((row["name_adjustments"] if "name_adjustments" in keys else None) or "{}"),
+        "cash_buffer": float(row["cash_buffer"] or 0.0) if "cash_buffer" in keys else 0.0,
+        "rebalance_urgency": (row["rebalance_urgency"] if "rebalance_urgency" in keys else None) or "normal",
+        "retrieval_log": json.loads((row["retrieval_log"] if "retrieval_log" in keys else None) or "[]"),
+        "trade_gate": (row["trade_gate"] if "trade_gate" in keys else None) or "",
+        "autonomy": (row["autonomy"] if "autonomy" in keys else None) or "",
+        "weights_source": (row["weights_source"] if "weights_source" in keys else None) or "",
     }
+
+
+def update_target_gate(db_path: str, target_id: int, gate: str) -> None:
+    """Record the Friday trade-gate decision on a persisted target, so the
+    Monday buy leg can honour a skip."""
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE targets SET trade_gate = ? WHERE id = ?", (gate, target_id))
+    conn.commit()
+    conn.close()

@@ -29,3 +29,36 @@ def rank_within_layer(layer_tickers: list[str], factor_scores: dict[str, float],
     scored = [t for t in layer_tickers if t in factor_scores]
     scored.sort(key=lambda t: factor_scores[t], reverse=True)
     return scored[:top_n]
+
+
+ADJUSTMENT_MIN = 0.5
+ADJUSTMENT_MAX = 1.5
+
+
+def apply_name_adjustments(scores: dict[str, float], adjustments: dict[str, float],
+                           clamp: bool = True) -> dict[str, float]:
+    """Apply LLM name emphasis to factor scores.
+
+    Semantics: an adjustment of exactly 0 vetoes the name; anything else is a
+    conviction multiplier — clamped to [0.5, 1.5] in guardrailed mode, taken
+    as-is (any positive value) in full-autonomy mode — where >1 always
+    *improves* the score and <1 always worsens it: for negative momentum that
+    means dividing, so a boost can never push a name further down the rank.
+    Tickers absent from `adjustments` pass through unchanged; adjustments for
+    unscored tickers are ignored.
+    """
+    out = {}
+    for t, score in scores.items():
+        raw = adjustments.get(t)
+        if raw is None:
+            out[t] = score
+            continue
+        if raw == 0:
+            continue  # veto
+        mult = float(raw)
+        if clamp:
+            mult = min(max(mult, ADJUSTMENT_MIN), ADJUSTMENT_MAX)
+        elif mult < 0:
+            continue  # negative multiplier is nonsense; treat as veto
+        out[t] = score * mult if score >= 0 else score / mult
+    return out
