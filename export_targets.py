@@ -13,10 +13,14 @@ import json
 import os
 import sys
 
-from db import get_latest_target
+from db import DEFAULT_DB, get_latest_target
 
 DEFAULT_OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "ops", "web", "targets.json")
+
+
+class NoTargetError(Exception):
+    """Raised when the targets table holds no row to export."""
 
 
 def build_payload(target: dict) -> dict:
@@ -29,13 +33,18 @@ def build_payload(target: dict) -> dict:
     }
 
 
-def export(db_path: str | None = None, out_path: str = DEFAULT_OUT) -> dict:
-    """Write the latest target to out_path. Exits non-zero if none exists,
-    leaving any existing file untouched rather than publishing empty targets."""
-    target = get_latest_target(db_path) if db_path else get_latest_target()
+def export(db_path: str = str(DEFAULT_DB), out_path: str = DEFAULT_OUT) -> dict:
+    """Write the latest target to out_path and return the payload.
+
+    Raises NoTargetError when the table is empty, leaving any existing file
+    untouched rather than publishing empty targets over a good snapshot.
+    """
+    target = get_latest_target(db_path)
     if target is None:
-        sys.exit("no target in DB — run `./run.sh --mode trade` first; "
-                 f"leaving {out_path} untouched")
+        raise NoTargetError(
+            f"no target in {db_path} — run `./run.sh --mode trade` first; "
+            f"leaving {out_path} untouched"
+        )
 
     payload = build_payload(target)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -47,11 +56,15 @@ def export(db_path: str | None = None, out_path: str = DEFAULT_OUT) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", default=None, help="DB path (default: engine default)")
+    parser.add_argument("--db", default=str(DEFAULT_DB), help="DB path")
     parser.add_argument("--out", default=DEFAULT_OUT, help="output path")
     args = parser.parse_args()
 
-    result = export(db_path=args.db, out_path=args.out)
+    try:
+        result = export(db_path=args.db, out_path=args.out)
+    except NoTargetError as e:
+        sys.exit(str(e))
+
     print(f"wrote {args.out}: target id={result['id']} "
           f"computed_at={result['computed_at']} "
           f"regime={result['regime']} names={len(result['weights'])}")

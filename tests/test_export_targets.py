@@ -1,7 +1,9 @@
 import json
 
+import pytest
+
 from db import init_targets_table, insert_target
-from export_targets import build_payload, export
+from export_targets import NoTargetError, build_payload, export
 
 
 def _insert(db, **over):
@@ -49,12 +51,8 @@ def test_export_raises_when_no_target(tmp_path):
     out = tmp_path / "targets.json"
     init_targets_table(db)
 
-    try:
+    with pytest.raises(NoTargetError):
         export(db_path=db, out_path=str(out))
-    except SystemExit as e:
-        assert e.code != 0
-    else:
-        raise AssertionError("expected SystemExit when targets table is empty")
 
     assert not out.exists()
 
@@ -65,9 +63,7 @@ def test_export_leaves_existing_file_untouched_on_empty_db(tmp_path):
     init_targets_table(db)
     out.write_text('{"id": 11, "weights": {"MU": 0.09}}')
 
-    try:
+    with pytest.raises(NoTargetError):
         export(db_path=db, out_path=str(out))
-    except SystemExit:
-        pass
 
     assert json.loads(out.read_text())["id"] == 11
