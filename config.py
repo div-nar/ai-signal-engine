@@ -74,12 +74,15 @@ TICKER_UNIVERSE = [
 GEMINI_MODEL = "gemini-3-flash-preview"
 GEMINI_MAX_OUTPUT_TOKENS = 8192
 
-# Embedding model for ChromaDB semantic retrieval. NOTE: the older
-# text-embedding-004 was retired by Google (returns 404); gemini-embedding-001
-# is its successor. Its default output is 3072-dim and L2-normalised. Changing
-# this requires rebuilding the Chroma collections (delete data/chroma) since
-# vectors of different dimensionality cannot coexist in one collection.
-EMBEDDING_MODEL = "gemini-embedding-001"
+# ── opencode (thesis backend; replaces Gemini API, which was 403-suspended) ────
+# Invoked as a CLI via scoring.thesis_scorer._OpencodeClient. Uses the opencode-go
+# subscription gateway — no API key in this process, nothing remotely revocable.
+OPENCODE_MODEL = "opencode-go/qwen3.7-max"
+OPENCODE_TIMEOUT_S = 120
+
+# Embeddings moved to a LOCAL model (fastembed / nomic-embed-text-v1.5, 768-dim)
+# in chroma_store.py after the Gemini project was 403-suspended. No API embedding
+# constant remains. See docs/superpowers/specs/2026-08-13-*.
 
 # ── Guardrails ─────────────────────────────────────────────────────────────────
 MAX_STOCK_WEIGHT = 0.10

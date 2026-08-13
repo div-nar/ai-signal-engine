@@ -6,3 +6,4 @@ pytest-mock==3.14.0
 alpaca-py==0.38.0
 yfinance>=1.5
 chromadb==1.5.9
+fastembed>=0.8
