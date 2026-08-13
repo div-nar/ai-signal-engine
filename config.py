@@ -20,6 +20,15 @@ RSS_FEEDS = [
     {"url": "https://tanay.substack.com/feed",          "value_chain_layer": "application"},
     {"url": "https://www.latent.space/feed",            "value_chain_layer": "application"},
     {"url": "https://importai.substack.com/feed",       "value_chain_layer": "application"},
+    # Broad daily market/business media — day-to-day whole-market context now
+    # that the LLM invests across the entire market, not just the AI complex.
+    # (Tagged "market"; value_chain_layer is a free-form doc tag.)
+    {"url": "https://www.cnbc.com/id/20910258/device/rss/rss.html", "value_chain_layer": "market"},  # CNBC Markets
+    {"url": "http://feeds.marketwatch.com/marketwatch/topstories/", "value_chain_layer": "market"},  # MarketWatch
+    {"url": "https://finance.yahoo.com/news/rssindex",             "value_chain_layer": "market"},  # Yahoo Finance
+    {"url": "https://seekingalpha.com/feed.xml",                   "value_chain_layer": "market"},  # Seeking Alpha
+    {"url": "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", "value_chain_layer": "market"},  # NYT Business
+    {"url": "https://www.investing.com/rss/news_25.rss",           "value_chain_layer": "market"},  # Investing.com
 ]
 
 # ── HuggingFace Daily Papers ───────────────────────────────────────────────────
