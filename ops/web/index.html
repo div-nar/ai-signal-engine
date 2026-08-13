@@ -147,7 +147,7 @@ a{color:inherit}
   </div>
   <div class=panel>
     <h2>Equity</h2>
-    <p class=cap id=chartcap>Full account history from inception · $100,000 start</p>
+    <p class=cap id=chartcap>Layercake vs QQQ &amp; SPY, from inception · $100,000 start</p>
     <div class=chartbox><canvas id=chart></canvas></div>
   </div>
 </section>
@@ -301,17 +301,25 @@ function renderLegend(){
 function renderChart(d){
   const H=d.history||[]; const labels=H.map(x=>x.date), eq=H.map(x=>x.equity);
   const migIdx=H.findIndex(x=>x.date>=d.migration);
-  const pf=cssv('--pf'), grey=cssv('--faint');
+  const pf=cssv('--pf'), grey=cssv('--faint'), ot=cssv('--ot');
   const seg=ctx=>(migIdx>=0&&ctx.p1DataIndex<=migIdx)?grey:pf;
+  const bm=d.benchmarks||{};
+  const ds=[{label:'Layercake',data:eq,borderColor:pf,segment:{borderColor:seg},borderWidth:2,
+      fill:true,tension:.18,pointRadius:0,order:0,
+      backgroundColor:c=>{const a=c.chart.ctx.createLinearGradient(0,0,0,180);
+        a.addColorStop(0,'rgba(79,134,247,.22)');a.addColorStop(1,'rgba(79,134,247,0)');return a;}}];
+  if(bm.QQQ)ds.push({label:'QQQ',data:bm.QQQ.equity,borderColor:ot,borderWidth:1.25,
+    borderDash:[4,3],pointRadius:0,tension:.18,fill:false,order:1});
+  if(bm.SPY)ds.push({label:'SPY',data:bm.SPY.equity,borderColor:grey,borderWidth:1.25,
+    borderDash:[2,3],pointRadius:0,tension:.18,fill:false,order:2});
   if(chart)chart.destroy();
   chart=new Chart($('#chart'),{type:'line',
-    data:{labels,datasets:[{data:eq,borderColor:pf,segment:{borderColor:seg},borderWidth:2,
-      fill:true,tension:.18,pointRadius:0,
-      backgroundColor:c=>{const a=c.chart.ctx.createLinearGradient(0,0,0,180);
-        a.addColorStop(0,'rgba(79,134,247,.22)');a.addColorStop(1,'rgba(79,134,247,0)');return a;}}]},
+    data:{labels,datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>usd(c.parsed.y)}}},
+      plugins:{legend:{display:true,labels:{color:cssv('--sub'),boxWidth:18,boxHeight:2,
+        font:{family:'JetBrains Mono',size:10}}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+': '+usd(c.parsed.y)}}},
       scales:{x:{ticks:{color:cssv('--faint'),maxTicksLimit:6,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
         y:{ticks:{color:cssv('--faint'),font:{family:'JetBrains Mono',size:10},callback:v=>'$'+(v/1000).toFixed(0)+'k'},
           grid:{color:'rgba(39,46,58,.6)'}}}}});
@@ -342,9 +350,17 @@ async function load(){
       sharpe=sd>0?(m/sd)*Math.sqrt(252):null;
     }
   }
+  const bm=d.benchmarks||{};
+  const qqq=bm.QQQ?bm.QQQ.return_pct:null, spy=bm.SPY?bm.SPY.return_pct:null;
+  const alphaQ=(qqq!=null&&L.total_return_pct!=null)?L.total_return_pct-qqq:null;
+  const eqFoot=(L.total_return_pct!=null
+      ?`<span class=${sgn(L.total_return_pct)}>${pct(L.total_return_pct)}</span> since day one`
+      :'')+(L.long_market_value!=null?` · ${usd(L.long_market_value)} in stock`:'');
   $('#kpis').innerHTML=
-    kpi('Equity',usd(L.equity),(L.long_market_value!=null?usd(L.long_market_value)+' in stock':''),'',true)
-    +kpi('All-time return',pct(L.total_return_pct),(gain==null?'':(gain>=0?'+':'')+usd(gain)+' on $100k'),gain==null?'':sgn(gain))
+    kpi('Equity',usd(L.equity),eqFoot,'',true)
+    +kpi('vs QQQ',alphaQ==null?'—':(alphaQ>=0?'+':'')+alphaQ.toFixed(1)+' pts',
+         (qqq!=null?'QQQ '+pct(qqq)+(spy!=null?' · SPY '+pct(spy):''):'benchmark n/a'),
+         alphaQ==null?'':sgn(alphaQ))
     +kpi('Sharpe',sharpe==null?'—':sharpe.toFixed(2),(vol!=null?vol.toFixed(0)+'% annualized vol':''),sharpe==null?'':sgn(sharpe))
     +kpi('Today',day==null?'—':(day>=0?'+':'')+usd(day),open?'live':'at last close',day==null?'':sgn(day))
     +kpi('Cash',usd(L.cash),(L.equity?(L.cash/L.equity*100).toFixed(0)+'% of book':''));

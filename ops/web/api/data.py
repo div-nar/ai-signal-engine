@@ -30,6 +30,39 @@ def _target():
     return {"id": None, "weights": {}, "regime": None, "computed_at": None}
 
 
+def _benchmarks(history):
+    """SPY & QQQ normalized to the account's $100k start, forward-filled onto the
+    portfolio's own dates — so the page can plot the alpha and headline vs-QQQ."""
+    if not history:
+        return {}
+    from alpaca.data.historical import StockHistoricalDataClient
+    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.timeframe import TimeFrame
+    from alpaca.data.enums import DataFeed
+    start = dt.date.fromisoformat(history[0]["date"])
+    dcli = StockHistoricalDataClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"])
+    try:
+        bars = dcli.get_stock_bars(StockBarsRequest(
+            symbol_or_symbols=["SPY", "QQQ"], timeframe=TimeFrame.Day,
+            start=dt.datetime.combine(start, dt.time()), feed=DataFeed.IEX)).data
+    except Exception as e:
+        return {"error": str(e)[:80]}
+    out = {}
+    for sym in ("SPY", "QQQ"):
+        closes = {str(b.timestamp)[:10]: float(b.close) for b in (bars.get(sym) or [])}
+        if not closes:
+            continue
+        first = closes[min(closes)]
+        series, last = [], NET_DEPOSITS
+        for h in history:
+            if h["date"] in closes:
+                last = closes[h["date"]] / first * NET_DEPOSITS
+            series.append(round(last, 2))
+        out[sym] = {"equity": series,
+                    "return_pct": (series[-1] - NET_DEPOSITS) / NET_DEPOSITS * 100}
+    return out
+
+
 def _build():
     from alpaca.trading.client import TradingClient
     from alpaca.trading.requests import GetPortfolioHistoryRequest
@@ -74,6 +107,7 @@ def _build():
         "generated_at": dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
         "migration": MIGRATION,
         "history": history,
+        "benchmarks": _benchmarks(history),
         "layercake": layercake,
         "target": {"id": tgt.get("id"), "regime": tgt.get("regime"),
                    "computed_at": tgt.get("computed_at")},
