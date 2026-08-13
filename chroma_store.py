@@ -3,9 +3,14 @@ from pathlib import Path
 from typing import Optional
 
 import chromadb
-from google import genai
 
-from config import EMBEDDING_MODEL
+# Local embedding model — replaces the 403-suspended Gemini embeddings API.
+# nomic-embed-text-v1.5: 768-dim, 8192-token context (no truncation of long
+# arXiv/EDGAR docs), runs offline via fastembed's ONNX runtime. Changing this
+# requires rebuilding the Chroma collections (scripts/rebuild_chroma.py) since
+# vectors of different dimensionality cannot coexist in one collection.
+_EMBED_MODEL = "nomic-ai/nomic-embed-text-v1.5"
+_EMBEDDER = None
 
 
 def init_chroma(path: str) -> chromadb.ClientAPI:
@@ -15,20 +20,19 @@ def init_chroma(path: str) -> chromadb.ClientAPI:
     return client
 
 
+def _get_embedder():
+    """Lazy singleton fastembed model (first call downloads the ONNX weights)."""
+    global _EMBEDDER
+    if _EMBEDDER is None:
+        from fastembed import TextEmbedding
+        _EMBEDDER = TextEmbedding(_EMBED_MODEL)
+    return _EMBEDDER
+
+
 def _embed(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY environment variable is not set")
-    gc = genai.Client(api_key=api_key)
-    result = gc.models.embed_content(
-        model=EMBEDDING_MODEL,
-        contents=text,
-        config={"task_type": task_type},
-    )
-    try:
-        return list(result.embeddings[0].values)
-    except (IndexError, AttributeError) as e:
-        raise RuntimeError(f"Unexpected embedding response format: {e}")
+    prefix = "search_query: " if task_type == "RETRIEVAL_QUERY" else "search_document: "
+    vec = next(_get_embedder().embed([prefix + text]))
+    return [float(x) for x in vec]
 
 
 def upsert_research_doc(
