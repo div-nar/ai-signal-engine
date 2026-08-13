@@ -15,7 +15,7 @@ from strategy.factors import momentum_scores, apply_name_adjustments
 from strategy.assemble import assemble_portfolio
 from scoring.thesis_scorer import score_layer_thesis, DOCS_PER_QUERY
 from pricing.history import fetch_recent_closes
-from execution.alpaca import execute_sells, execute_buys, get_alpaca_positions
+from execution.alpaca import execute_sells, execute_buys, get_alpaca_positions, get_tradable_symbols
 
 
 def _make_retriever(chroma_client):
@@ -100,13 +100,25 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
     if prices is not None and not prices.empty:
         scores = momentum_scores(prices, prices.index[-1])
 
+    whole_market = getattr(config, "WHOLE_MARKET", False)
+    valid_symbols = None
     portfolio_context = None
     if full:
         portfolio_context = {
             "positions": get_alpaca_positions(client=exec_client)["longs"],
             "momentum": _momentum_by_layer(scores),
-            "universe": getattr(config, "TICKER_UNIVERSE", sorted(LAYER_MAP)),
+            # Whole-market: don't hand the LLM a fixed list — it picks any liquid
+            # US equity, validated against tradable symbols below. Curated mode
+            # still injects the universe so the model stays inside it.
+            "universe": None if whole_market
+                        else getattr(config, "TICKER_UNIVERSE", sorted(LAYER_MAP)),
         }
+        if whole_market:
+            try:
+                valid_symbols = get_tradable_symbols(client=exec_client)
+            except Exception as e:
+                print(f"  WARNING: could not fetch tradable universe ({e}); "
+                      f"falling back to ticker-format validation")
 
     thesis = score_layer_thesis(
         docs,
@@ -116,6 +128,7 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
         signal_memory=_fetch_signal_memory(chroma_client, prior),
         portfolio_context=portfolio_context,
         autonomy=autonomy,
+        valid_symbols=valid_symbols,
     )
 
     if thesis["target_weights_direct"]:

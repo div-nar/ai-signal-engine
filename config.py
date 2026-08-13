@@ -98,6 +98,13 @@ WEIGHT_SUM_TOLERANCE = 0.01
 # "guardrailed": the bounded decision surface (tilt clamps [8%,35%], top-n
 #                [2,4], name emphasis [0.5x,1.5x], cash <=30%).
 LLM_AUTONOMY = "full"
+
+# Whole-market autonomy: in full mode the LLM may hold ANY liquid, fractionable
+# US equity (validated against Alpaca's tradable-asset list), not just the
+# curated ~58-name layer universe. Set False to confine it to TICKER_UNIVERSE.
+# The layer map below still drives the dashboard's layer view and the
+# guardrailed dial pipeline; whole-market names outside it show as "other".
+WHOLE_MARKET = True
 # Agentic retrieval budget (rounds of follow-up queries against ChromaDB).
 LLM_SEARCH_MAX_ROUNDS = 5
 LLM_SEARCH_MAX_QUERIES = 5

@@ -8,6 +8,25 @@ from alpaca.trading.enums import OrderSide, TimeInForce
 
 _MIN_ORDER_VALUE = 500.0
 _ORDER_DELAY_S = 0.3
+_TRADABLE_CACHE: set | None = None
+
+
+def get_tradable_symbols(client=None) -> set:
+    """Set of Alpaca symbols that can hold a long notional order — active,
+    tradable, fractionable US equities. This is the whole-market universe the
+    LLM's book is validated against, so a hallucinated ticker never reaches the
+    broker. Cached per process (the asset list changes rarely)."""
+    global _TRADABLE_CACHE
+    if _TRADABLE_CACHE is not None:
+        return _TRADABLE_CACHE
+    from alpaca.trading.requests import GetAssetsRequest
+    from alpaca.trading.enums import AssetClass, AssetStatus
+    client = client or _get_client()
+    assets = client.get_all_assets(
+        GetAssetsRequest(status=AssetStatus.ACTIVE, asset_class=AssetClass.US_EQUITY))
+    _TRADABLE_CACHE = {a.symbol for a in assets
+                       if getattr(a, "tradable", False) and getattr(a, "fractionable", False)}
+    return _TRADABLE_CACHE
 _CANCEL_POLL_INTERVAL_S = 1.0
 _CANCEL_POLL_TIMEOUT_S = 30.0
 _FILL_POLL_S = 2.0

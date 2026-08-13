@@ -88,25 +88,35 @@ def sanitize_urgency(raw) -> str:
     return raw if raw in ("urgent", "normal", "hold") else "normal"
 
 
-def sanitize_target_weights(raw: dict | None) -> tuple[dict[str, float], float]:
+_TICKER_RE = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
+
+
+def sanitize_target_weights(raw: dict | None,
+                            valid_symbols: set | None = None) -> tuple[dict[str, float], float]:
     """Validate LLM-authored target weights (full autonomy only).
 
-    Correctness, not judgment: tickers must be in TICKER_UNIVERSE (no
-    hallucinated symbols reach the broker), weights must be positive numbers.
+    Correctness, not judgment: no hallucinated symbols reach the broker, and
+    weights must be positive numbers. When `valid_symbols` is given (e.g. the
+    live set of tradable Alpaca symbols), tickers must be in it — this is how
+    whole-market autonomy stays broker-safe. When it is None, a ticker-format
+    check is the only gate, so the LLM is free to name any plausible symbol.
     Weights are normalized to sum to 1.0 and the shortfall from the raw sum
     (if it was < 1) is returned as an implied cash fraction. Returns
     ({}, 0.0) when nothing valid remains.
     """
     if not isinstance(raw, dict):
         return {}, 0.0
-    universe = set(getattr(config, "TICKER_UNIVERSE", [])) | set(LAYER_MAP)
     weights = {}
     for ticker, w in raw.items():
         t = str(ticker).upper()
         if t == "CASH":
-            continue  # cash is expressed via cash_buffer / the implied remainder
-        if t not in universe:
-            print(f"  WARNING: LLM weight for {t} dropped (outside TICKER_UNIVERSE)")
+            continue  # cash is the implied remainder when weights sum to < 1
+        if valid_symbols is not None:
+            if t not in valid_symbols:
+                print(f"  WARNING: LLM weight for {t} dropped (not a tradable symbol)")
+                continue
+        elif not _TICKER_RE.match(t):
+            print(f"  WARNING: LLM weight for {t} dropped (not a valid ticker format)")
             continue
         try:
             w = float(w)
@@ -192,9 +202,12 @@ failed by trading on vibes: free-form stock picks carried zero information
 (rank IC ~= -0.008), churned 14x/quarter, and underperformed its benchmark.
 Do not repeat that. Principles:
 
-- Long-only, no leverage. Weights must be positive and sum to <= 1.0; any
-  remainder is held as cash. Only tickers from the fund's universe are
-  executable — anything else is dropped.
+- Long-only, no leverage. Weights must be positive and sum to <= 1.0; the
+  remainder IS your cash — there is no separate cash dial, so to hold 15% cash
+  you make the weights sum to 0.85.
+- Your universe is the whole market: any liquid, US-listed equity that trades
+  fractionally on the broker is eligible. You are not confined to a sector list.
+  Use real tickers — anything untradable is dropped before it reaches the broker.
 - Diversification is your job now, not a clamp's. A concentrated bet needs a
   written catalyst in your thesis_update; an all-in single name is almost
   never justified by public research you read minutes ago.
@@ -223,7 +236,7 @@ FINAL ANSWER — output ONLY valid JSON:
   "layer_tilt": {"power": <float>, ...},               // option B (ignored if target_weights given)
   "layer_top_n": {"power": <int>, ...},
   "name_adjustments": {"<TICKER>": <float>, ...},
-  "cash_buffer": <float 0-1>,
+  "cash_buffer": <float 0-1>,                          // option B only; in A, cash = 1 - sum(weights)
   "rebalance_urgency": <"urgent"|"normal"|"hold">,
 """ + _COMMON_FIELDS + "\n}").replace("MAXQ", str(MAX_QUERIES_PER_ROUND)).replace("MAXR", str(MAX_SEARCH_ROUNDS))
 
@@ -423,7 +436,8 @@ def score_layer_thesis(docs: list[dict], prev_budgets: dict | None = None,
                        macro_signal: dict | None = None, client=None,
                        retriever=None, signal_memory: list[dict] | None = None,
                        portfolio_context: dict | None = None,
-                       autonomy: str | None = None) -> dict:
+                       autonomy: str | None = None,
+                       valid_symbols: set | None = None) -> dict:
     """Run the (optionally agentic) LLM thesis pass and return sanitized output.
 
     `retriever` is a callable(query: str) -> list[doc dict] over the vector
@@ -449,13 +463,19 @@ def score_layer_thesis(docs: list[dict], prev_budgets: dict | None = None,
 
     direct_weights, implied_cash = ({}, 0.0)
     if full:
-        direct_weights, implied_cash = sanitize_target_weights(parsed.get("target_weights"))
+        direct_weights, implied_cash = sanitize_target_weights(
+            parsed.get("target_weights"), valid_symbols=valid_symbols)
 
     tilt = normalize_tilt(parsed.get("layer_tilt", {}))
     budgets = apply_layer_tilt(BASELINE_BUDGETS, tilt, clamp=not full)
-    cash = sanitize_cash_buffer(parsed.get("cash_buffer", 0.0), clamp=not full)
-    if direct_weights:
-        cash = max(cash, implied_cash)
+    # Full autonomy has a single allocation lever: the book the LLM draws.
+    # Cash is whatever its weights leave unallocated (weights summing to < 1) —
+    # there is no separate cash_buffer dial. Guardrailed keeps its buffer.
+    if full:
+        cash = implied_cash if direct_weights else sanitize_cash_buffer(
+            parsed.get("cash_buffer", 0.0), clamp=False)
+    else:
+        cash = sanitize_cash_buffer(parsed.get("cash_buffer", 0.0), clamp=True)
     return {
         "layer_tilt": tilt,
         "layer_budgets": budgets,

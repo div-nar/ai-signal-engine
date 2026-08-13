@@ -27,14 +27,27 @@ def _base(**overrides):
 
 
 def test_direct_weights_validated_normalized_cash_implied():
-    client = OneShot(_base(target_weights={"NVDA": 0.4, "VST": 0.3, "FAKE": 0.2,
+    # ZZZZ is a valid ticker *format* but not in the supplied tradable set,
+    # so it is dropped; "bad" weight and CASH are dropped too.
+    client = OneShot(_base(target_weights={"NVDA": 0.4, "VST": 0.3, "ZZZZ": 0.2,
                                            "MU": "bad", "CASH": 0.1}))
+    out = score_layer_thesis([], client=client, autonomy="full",
+                             valid_symbols={"NVDA", "VST", "MU"})
+    w = out["target_weights_direct"]
+    assert "ZZZZ" not in w and "MU" not in w and "CASH" not in w
+    assert sum(w.values()) == pytest.approx(1.0)
+    # raw valid sum was 0.7 -> 0.3 implied cash (no separate cash dial)
+    assert out["cash_buffer"] == pytest.approx(0.3)
+
+
+def test_direct_weights_whole_market_accepts_any_valid_ticker():
+    # With no tradable set injected, any well-formed ticker is allowed —
+    # whole-market autonomy. Garbage-format keys are still dropped.
+    client = OneShot(_base(target_weights={"COST": 0.5, "JPM": 0.3, "not a ticker": 0.2}))
     out = score_layer_thesis([], client=client, autonomy="full")
     w = out["target_weights_direct"]
-    assert "FAKE" not in w and "MU" not in w and "CASH" not in w
+    assert set(w) == {"COST", "JPM"}          # non-AI names now allowed
     assert sum(w.values()) == pytest.approx(1.0)
-    # raw valid sum was 0.7 -> 0.3 implied cash
-    assert out["cash_buffer"] == pytest.approx(0.3)
 
 
 def test_guardrailed_mode_ignores_direct_weights():
@@ -63,8 +76,12 @@ def test_unclamped_cash_buffer():
 
 def test_sanitize_target_weights_rejects_garbage():
     assert sanitize_target_weights(None) == ({}, 0.0)
-    assert sanitize_target_weights({"FAKE": 1.0}) == ({}, 0.0)
-    assert sanitize_target_weights({"NVDA": -0.5}) == ({}, 0.0)
+    assert sanitize_target_weights({"lowercase words": 1.0}) == ({}, 0.0)  # bad format
+    assert sanitize_target_weights({"NVDA": -0.5}) == ({}, 0.0)            # non-positive
+    # a valid-format ticker is kept when no tradable set restricts it
+    assert sanitize_target_weights({"JPM": 1.0}) == ({"JPM": 1.0}, 0.0)
+    # but dropped when a tradable set is supplied and excludes it
+    assert sanitize_target_weights({"JPM": 1.0}, valid_symbols={"NVDA"}) == ({}, 0.0)
 
 
 class _Bar:
@@ -106,7 +123,8 @@ def test_orchestrate_full_prompt_includes_book_and_momentum(tmp_path):
     prompt = client.prompts[0]
     assert "MOMENTUM RANKS" in prompt
     assert "CURRENT BOOK" in prompt
-    assert "EXECUTABLE UNIVERSE" in prompt
+    # whole-market mode: no fixed executable-universe list is injected
+    assert "EXECUTABLE UNIVERSE" not in prompt
 
 
 def test_orchestrate_dials_fallback_when_no_direct_weights(tmp_path):
