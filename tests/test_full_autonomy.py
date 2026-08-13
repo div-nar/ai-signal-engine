@@ -121,7 +121,7 @@ def test_orchestrate_full_prompt_includes_book_and_momentum(tmp_path):
     compute_weekly_target(docs=[], db_path=db, thesis_client=client,
                           data_client=FakeData(), now=_NOW, autonomy="full")
     prompt = client.prompts[0]
-    assert "MOMENTUM RANKS" in prompt
+    assert "AI-LAYER MOMENTUM" in prompt
     assert "CURRENT BOOK" in prompt
     # whole-market mode: no fixed executable-universe list is injected
     assert "EXECUTABLE UNIVERSE" not in prompt
@@ -136,3 +136,20 @@ def test_orchestrate_dials_fallback_when_no_direct_weights(tmp_path):
     assert out["weights_source"] == "dial_pipeline"
     assert out["target_weights"]
     assert sum(out["target_weights"].values()) == pytest.approx(1.0)
+
+
+def test_broad_movers_excludes_ai_names_and_ranks():
+    from orchestrate import _broad_movers
+    scores = {"NVDA": 2.0, "AMCR": 1.5, "JPM": -0.3, "MU": 1.9, "XOM": 0.4}
+    out = _broad_movers(scores, n=2)
+    flat = [t for t, _ in out["leaders"]] + [t for t, _ in out["laggards"]]
+    assert "NVDA" not in flat and "MU" not in flat          # AI names excluded
+    assert out["leaders"][0][0] == "AMCR"                    # best non-AI first
+
+
+def test_momentum_universe_is_broad_when_flag_on():
+    import config
+    from orchestrate import _momentum_universe
+    u = _momentum_universe()
+    assert len(u) > 400                                      # S&P 500 ∪ AI, not ~58
+    assert "JPM" in u and "NVDA" in u

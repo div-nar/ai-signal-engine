@@ -75,6 +75,20 @@ def _momentum_by_layer(scores: dict[str, float]) -> dict[str, list]:
     }
 
 
+def _broad_movers(scores: dict[str, float], n: int = 20) -> dict[str, list]:
+    """Top and bottom whole-market momentum names OUTSIDE the AI layers —
+    cross-market context so the LLM can range beyond the AI complex."""
+    non_ai = [(t, s) for t, s in scores.items() if t not in LAYER_MAP]
+    ranked = sorted(non_ai, key=lambda ts: -ts[1])
+    return {"leaders": ranked[:n], "laggards": ranked[-n:][::-1]}
+
+
+def _momentum_universe() -> list[str]:
+    if getattr(config, "WHOLE_MARKET_MOMENTUM", False):
+        return sorted(set(config.SP500) | set(LAYER_MAP))
+    return sorted(LAYER_MAP)
+
+
 def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
                           thesis_client=None, data_client=None,
                           persist: bool = True, now=None,
@@ -94,7 +108,7 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
         autonomy = getattr(config, "LLM_AUTONOMY", "guardrailed")
     full = autonomy == "full"
 
-    tickers = sorted(LAYER_MAP)
+    tickers = _momentum_universe()
     prices = fetch_recent_closes(tickers, client=data_client, now=now)
     scores = {}
     if prices is not None and not prices.empty:
@@ -107,6 +121,8 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
         portfolio_context = {
             "positions": get_alpaca_positions(client=exec_client)["longs"],
             "momentum": _momentum_by_layer(scores),
+            "broad_movers": _broad_movers(scores) if getattr(
+                config, "WHOLE_MARKET_MOMENTUM", False) else None,
             # Whole-market: don't hand the LLM a fixed list — it picks any liquid
             # US equity, validated against tradable symbols below. Curated mode
             # still injects the universe so the model stays inside it.

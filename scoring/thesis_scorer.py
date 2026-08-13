@@ -208,6 +208,12 @@ Do not repeat that. Principles:
 - Your universe is the whole market: any liquid, US-listed equity that trades
   fractionally on the broker is eligible. You are not confined to a sector list.
   Use real tickers — anything untradable is dropped before it reaches the broker.
+- BUT the AI-infrastructure layers (power / fabrication / compute / infrastructure
+  / platform) are your edge and your default focus — that is where your research
+  and conviction are deepest. Anchor the book there. Reach into the broader market
+  (the whole-market momentum list) when a name is a clearly better expression of
+  the thesis or a genuine opportunity you can articulate — not to diversify for
+  its own sake. Every non-AI position needs a one-line reason in thesis_update.
 - Diversification is your job now, not a clamp's. A concentrated bet needs a
   written catalyst in your thesis_update; an all-in single name is almost
   never justified by public research you read minutes ago.
@@ -266,11 +272,21 @@ def _format_portfolio_context(ctx: dict | None) -> str:
         parts.append("### CURRENT BOOK\n(all cash — no positions)\n")
     momentum = ctx.get("momentum") or {}
     if momentum:
-        parts.append("### MOMENTUM RANKS (12-1, by layer, best first)")
+        parts.append("### AI-LAYER MOMENTUM (12-1, best first) — YOUR PRIMARY HUNTING GROUND")
         for layer in LAYERS:
             ranked = momentum.get(layer)
             if ranked:
                 parts.append(f"{layer}: " + ", ".join(f"{t} {s:+.1%}" for t, s in ranked))
+        parts.append("")
+    broad = ctx.get("broad_movers")
+    if broad:
+        lead = broad.get("leaders") or []
+        lag = broad.get("laggards") or []
+        parts.append("### WHOLE-MARKET MOMENTUM (non-AI names) — context, not your default")
+        if lead:
+            parts.append("leaders: " + ", ".join(f"{t} {s:+.1%}" for t, s in lead))
+        if lag:
+            parts.append("laggards: " + ", ".join(f"{t} {s:+.1%}" for t, s in lag))
         parts.append("")
     universe = ctx.get("universe")
     if universe:

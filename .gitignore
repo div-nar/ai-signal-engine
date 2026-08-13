@@ -30,3 +30,4 @@ cron.log
 
 # Vector store / caches (regenerated locally)
 data/
+!data/sp500.json

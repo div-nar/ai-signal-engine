@@ -3,6 +3,8 @@ import datetime as dt
 
 import pandas as pd
 
+_CHUNK = 100  # symbols per Alpaca bars request; larger overflows the endpoint
+
 
 def _default_client():
     import os
@@ -31,9 +33,19 @@ def fetch_recent_closes(tickers: list[str], lookback_days: int = 320,
     # IEX is the free-tier feed; SIP rejects "recent" (<~15 min) bars with a 403.
     # Momentum skips the most recent ~21 trading days anyway, so IEX daily closes
     # are more than sufficient.
-    request = StockBarsRequest(symbol_or_symbols=tickers, timeframe=TimeFrame.Day,
-                               start=start, end=now, feed=DataFeed.IEX)
-    bars = client.get_stock_bars(request).data
+    # Batch symbols: a single request for hundreds of tickers overflows Alpaca's
+    # bars endpoint (connection reset), so chunk and merge. Whole-market momentum
+    # (~600 names) needs this.
+    bars = {}
+    for i in range(0, len(tickers), _CHUNK):
+        chunk = tickers[i:i + _CHUNK]
+        request = StockBarsRequest(symbol_or_symbols=chunk, timeframe=TimeFrame.Day,
+                                   start=start, end=now, feed=DataFeed.IEX)
+        try:
+            bars.update(client.get_stock_bars(request).data)
+        except Exception as e:
+            print(f"  WARNING: price fetch failed for {len(chunk)} symbols "
+                  f"({chunk[0]}..{chunk[-1]}): {str(e)[:80]}")
 
     series = {}
     for sym, rows in bars.items():

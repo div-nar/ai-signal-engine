@@ -114,6 +114,25 @@ LLM_AUTONOMY = "full"
 # The layer map below still drives the dashboard's layer view and the
 # guardrailed dial pipeline; whole-market names outside it show as "other".
 WHOLE_MARKET = True
+
+# Broaden the momentum signal beyond the AI names so the LLM sees cross-market
+# strength/weakness (otherwise it only ever gets ranked evidence for AI and
+# stays there). Momentum is scored over S&P 500 ∪ the AI layer names.
+WHOLE_MARKET_MOMENTUM = True
+
+
+def _load_sp500() -> list:
+    import json
+    import os
+    path = os.path.join(os.path.dirname(__file__), "data", "sp500.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except OSError:
+        return []
+
+
+SP500 = _load_sp500()
 # Agentic retrieval budget (rounds of follow-up queries against ChromaDB).
 LLM_SEARCH_MAX_ROUNDS = 5
 LLM_SEARCH_MAX_QUERIES = 5
