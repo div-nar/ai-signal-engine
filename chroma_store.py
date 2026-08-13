@@ -12,6 +12,12 @@ import chromadb
 _EMBED_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 _EMBEDDER = None
 
+# Local ONNX embedding is slow/pathological on very long sequences (a 50k-char
+# EDGAR 8-K can take >100s on CPU), so cap the input. ~8000 chars ≈ 2000 tokens —
+# well within nomic's context and far more than all-MiniLM's ~1000-char limit,
+# while keeping per-doc embed sub-second. Research docs lead with their signal.
+MAX_EMBED_CHARS = 8000
+
 
 def init_chroma(path: str) -> chromadb.ClientAPI:
     client = chromadb.PersistentClient(path=path)
@@ -31,7 +37,7 @@ def _get_embedder():
 
 def _embed(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
     prefix = "search_query: " if task_type == "RETRIEVAL_QUERY" else "search_document: "
-    vec = next(_get_embedder().embed([prefix + text]))
+    vec = next(_get_embedder().embed([prefix + text[:MAX_EMBED_CHARS]]))
     return [float(x) for x in vec]
 
 
