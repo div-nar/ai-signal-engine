@@ -24,12 +24,17 @@ class NoTargetError(Exception):
 
 
 def build_payload(target: dict) -> dict:
-    """Project a targets-table row onto the four keys api/data.py consumes."""
+    """Project a targets-table row onto the keys api/data.py consumes, including
+    the last trade-gate decision so the dashboard can show what the engine did."""
+    thesis = (target.get("thesis_update") or "").strip()
     return {
         "id": target["id"],
         "computed_at": target["computed_at"],
         "weights": target["target_weights"],
         "regime": target["market_regime"],
+        "urgency": target.get("rebalance_urgency", ""),
+        "trade_gate": target.get("trade_gate", ""),
+        "thesis": thesis[:400],
     }
 
 

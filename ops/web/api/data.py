@@ -63,6 +63,31 @@ def _benchmarks(history):
     return out
 
 
+def _recent_trades(client, limit=12):
+    """Last filled orders from Alpaca — the live trade log."""
+    from alpaca.trading.requests import GetOrdersRequest
+    from alpaca.trading.enums import QueryOrderStatus
+    try:
+        orders = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=60))
+    except Exception:
+        return []
+    out = []
+    for o in orders:
+        if str(getattr(o, "status", "")).split(".")[-1] != "FILLED":
+            continue
+        out.append({
+            "symbol": o.symbol,
+            "side": str(o.side).split(".")[-1].lower(),
+            "notional": float(o.notional) if o.notional else (
+                float(o.filled_avg_price) * float(o.filled_qty)
+                if o.filled_avg_price and o.filled_qty else None),
+            "at": o.filled_at.isoformat() if getattr(o, "filled_at", None) else None,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _build():
     from alpaca.trading.client import TradingClient
     from alpaca.trading.requests import GetPortfolioHistoryRequest
@@ -110,7 +135,10 @@ def _build():
         "benchmarks": _benchmarks(history),
         "layercake": layercake,
         "target": {"id": tgt.get("id"), "regime": tgt.get("regime"),
-                   "computed_at": tgt.get("computed_at")},
+                   "computed_at": tgt.get("computed_at"),
+                   "urgency": tgt.get("urgency", ""), "trade_gate": tgt.get("trade_gate", ""),
+                   "thesis": tgt.get("thesis", "")},
+        "recent_trades": _recent_trades(c),
         "live": {
             "ok": True, "market_open": bool(clock.is_open),
             "equity": eq, "cash": float(acct.cash),

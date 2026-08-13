@@ -21,13 +21,17 @@ def test_build_payload_maps_db_row_to_dashboard_shape():
     target = {
         "id": 11, "computed_at": "2026-07-03 13:00:38",
         "target_weights": {"MU": 0.09}, "market_regime": "shipping_bottleneck",
-        "thesis_update": "ignored", "cash_buffer": 0.1,
+        "thesis_update": "HBM is the binding constraint", "cash_buffer": 0.1,
+        "rebalance_urgency": "urgent", "trade_gate": "traded",
     }
     assert build_payload(target) == {
         "id": 11,
         "computed_at": "2026-07-03 13:00:38",
         "weights": {"MU": 0.09},
         "regime": "shipping_bottleneck",
+        "urgency": "urgent",
+        "trade_gate": "traded",
+        "thesis": "HBM is the binding constraint",
     }
 
 

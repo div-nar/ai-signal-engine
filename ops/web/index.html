@@ -93,8 +93,23 @@ a{color:inherit}
   display:flex;gap:16px;flex-wrap:wrap}
 .empty{font-family:var(--mono);font-size:13px;color:var(--faint);padding:14px 4px}
 
+/* activity */
+.activity{padding-top:38px}
+.decision{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.pill{font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.05em;padding:3px 9px;border-radius:6px}
+.pill.traded{background:rgba(52,211,153,.16);color:var(--pos)}
+.pill.held{background:rgba(136,145,166,.18);color:var(--sub)}
+.decision .th{font-size:13px;color:var(--sub);flex:1;min-width:240px;line-height:1.5}
+.tlog{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:2px 18px;margin-top:14px}
+.tl{font-family:var(--mono);font-size:12px;display:flex;justify-content:space-between;
+  padding:5px 0;border-bottom:1px solid var(--line)}
+.tl .b{color:var(--pos)}.tl .s{color:var(--neg)}
+.tl .amt{color:var(--sub)}
+.tlwrap .empty{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:12px}
+
 /* explainer */
-.explain{margin-top:22px}
+.explain{margin-top:38px}
 .explain h2{font-family:var(--disp);font-weight:700;font-size:19px;letter-spacing:-.01em;margin:0 0 4px}
 .explain .lede{color:var(--sub);max-width:70ch;margin:0 0 22px;font-size:14.5px}
 .explain b{color:var(--text);font-weight:600}
@@ -155,6 +170,12 @@ a{color:inherit}
 <section class="panel hold">
   <h2 style="margin-bottom:12px">Holdings · target vs. actual</h2>
   <div id=holdings></div>
+</section>
+
+<section class="hold activity">
+  <h2 style="margin-bottom:12px">Activity</h2>
+  <div id=decision></div>
+  <div id=trades></div>
 </section>
 
 <section class=explain>
@@ -364,7 +385,29 @@ async function load(){
     +kpi('Sharpe',sharpe==null?'—':sharpe.toFixed(2),(vol!=null?vol.toFixed(0)+'% annualized vol':''),sharpe==null?'':sgn(sharpe))
     +kpi('Today',day==null?'—':(day>=0?'+':'')+usd(day),open?'live':'at last close',day==null?'':sgn(day))
     +kpi('Cash',usd(L.cash),(L.equity?(L.cash/L.equity*100).toFixed(0)+'% of book':''));
-  renderCake(L); renderHoldings(L); renderChart(d);
+  renderCake(L); renderHoldings(L); renderChart(d); renderActivity(d);
+}
+
+function renderActivity(d){
+  const t=d.target||{};
+  const gate=(t.trade_gate||'').toLowerCase();
+  const traded=gate==='traded';
+  const held=gate.startsWith('skipped');
+  let label='—',cls='held';
+  if(traded){label='traded';cls='traded';}
+  else if(held){label=gate==='skipped_hold'?'held · thesis unchanged':'held · within bands';cls='held';}
+  else if(t.urgency){label=t.urgency==='hold'?'held':t.urgency;cls=t.urgency==='hold'?'held':'traded';}
+  const when=(t.computed_at||'').slice(0,16);
+  $('#decision').innerHTML=`<div class=decision>
+    <span class="pill ${cls}">${label}</span>
+    <span class=th><b style="color:var(--text)">Target #${t.id||'—'}</b> · ${t.regime||'—'} · ${when}
+    ${t.thesis?'<br>'+t.thesis.replace(/</g,'&lt;'):''}</span></div>`;
+  const tr=d.recent_trades||[];
+  if(!tr.length){$('#trades').innerHTML='<div class=tlwrap><div class=empty>No fills recorded yet.</div></div>';return;}
+  $('#trades').innerHTML='<div class=tlog>'+tr.map(x=>{
+    const amt=x.notional!=null?usd(x.notional):'';
+    return `<div class=tl><span class="${x.side==='buy'?'b':'s'}">${x.side==='buy'?'BUY ':'SELL'} ${x.symbol}</span>
+      <span class=amt>${amt}</span></div>`;}).join('')+'</div>';
 }
 renderLegend();
 load(); setInterval(load,60000);
