@@ -10,7 +10,7 @@
   --ink:#0E1116; --panel:#161B22; --panel2:#1B212B; --line:#272E3A;
   --text:#EAEEF4; --sub:#8A97AB; --faint:#5C6675;
   --pw:#F2A93B; --fb:#E36C42; --cp:#C363E6; --inf:#2CB9AA; --pf:#4F86F7;
-  --cash:#5C6675; --pos:#34D399; --neg:#F5637A;
+  --ot:#8891A6; --cash:#5C6675; --pos:#34D399; --neg:#F5637A;
   --disp:'Space Grotesk',system-ui,sans-serif;
   --mono:'JetBrains Mono',ui-monospace,monospace;
   --body:'Inter',system-ui,sans-serif;
@@ -215,14 +215,16 @@ const LC={power:{c:'--pw',blurb:'Grid, generation & electrical gear — the watt
   fabrication:{c:'--fb',blurb:'Foundries, semicap tools & materials — where silicon is made.'},
   compute:{c:'--cp',blurb:'Accelerators & memory — the chips that do the training and inference.'},
   infrastructure:{c:'--inf',blurb:'Datacenters, cooling, networking & interconnect — the buildings.'},
-  platform:{c:'--pf',blurb:'Hyperscalers & software — the layer that captures the value.'}};
+  platform:{c:'--pf',blurb:'Hyperscalers & software — the layer that captures the value.'},
+  other:{c:'--ot',blurb:'Outside the AI value chain — names the model picks from the whole market.'}};
 const BASE={power:20,fabrication:20,compute:25,infrastructure:15,platform:20};
 const MAP={VST:'power',CEG:'power',NRG:'power',NEE:'power',ETN:'power',PWR:'power',EIX:'power',AES:'power',GEV:'power',GE:'power',TSM:'fabrication',ASML:'fabrication',AMAT:'fabrication',LRCX:'fabrication',KLAC:'fabrication',SNPS:'fabrication',CDNS:'fabrication',ON:'fabrication',TOELY:'fabrication',SHECY:'fabrication',LIN:'fabrication',NVDA:'compute',AMD:'compute',AVGO:'compute',MU:'compute',MRVL:'compute',QCOM:'compute',TXN:'compute',ADI:'compute',ASX:'compute',ARM:'compute',VRT:'infrastructure',EQIX:'infrastructure',DLR:'infrastructure',IRM:'infrastructure',AMT:'infrastructure',CSCO:'infrastructure',FCX:'infrastructure',MSFT:'platform',GOOGL:'platform',AMZN:'platform',META:'platform',ORCL:'platform',PLTR:'platform',NOW:'platform',CRWD:'platform',DDOG:'platform',NFLX:'platform',CRM:'platform',ADBE:'platform',INTU:'platform',IBM:'platform',SAP:'platform',AAPL:'platform',BIDU:'platform',BABA:'platform',TCEHY:'platform'};
 const cssv=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 const usd=(n,d=0)=>n==null?'—':'$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:d});
 const pct=n=>n==null?'—':(n>=0?'+':'')+Number(n).toFixed(2)+'%';
 const sgn=n=>n>=0?'pos':'neg';
-const layerOf=t=>MAP[t]||'platform';
+const layerOf=t=>MAP[t]||'other';
+const CAKE_ORDER=['other',...[...LAYERS].reverse()];  // top->bottom under the cash band
 let chart;
 
 function kpi(lbl,val,foot,cls,hero){
@@ -231,15 +233,14 @@ function kpi(lbl,val,foot,cls,hero){
 
 function renderCake(L){
   const eq=L.equity||0, cash=L.cash||0;
-  const byL={}; LAYERS.forEach(l=>byL[l]=0);
-  (L.positions||[]).forEach(p=>{byL[layerOf(p.symbol)]+=(p.mv||0);});
-  const holdsByL={}; LAYERS.forEach(l=>holdsByL[l]=[]);
-  (L.positions||[]).forEach(p=>{if(p.mv>1)holdsByL[layerOf(p.symbol)].push(p);});
-  // rows top→bottom: platform … power, then cash band at very top
+  const byL={}, holdsByL={}; CAKE_ORDER.forEach(l=>{byL[l]=0;holdsByL[l]=[];});
+  (L.positions||[]).forEach(p=>{const l=layerOf(p.symbol);byL[l]+=(p.mv||0);
+    if(p.mv>1)holdsByL[l].push(p);});
+  // rows top→bottom: uninvested cash band, then 'other', platform … power
   const rows=[];
   const cashPct=eq?cash/eq*100:0;
   rows.push({key:'cash',name:'uninvested',pct:cashPct,cash:true});
-  [...LAYERS].reverse().forEach(l=>{
+  CAKE_ORDER.forEach(l=>{
     rows.push({key:l,name:l,pct:eq?byL[l]/eq*100:0,
       chips:holdsByL[l].sort((a,b)=>b.mv-a.mv).map(p=>p.symbol)});});
   const H=380, min=22;
@@ -329,15 +330,22 @@ async function load(){
   const gain=L.equity!=null?L.equity-(L.net_deposits||1e5):null;
   const day=(L.equity!=null&&L.last_equity!=null)?L.equity-L.last_equity:null;
   const H0=d.history||[];
-  let ann=null,days=null;
-  if(H0.length>1&&L.equity!=null){
-    days=Math.max(1,(Date.now()-new Date(H0[0].date+'T00:00:00Z'))/864e5);
-    ann=(Math.pow(L.equity/(L.net_deposits||1e5),365/days)-1)*100;
+  let sharpe=null,vol=null;
+  {
+    const eqs=H0.map(x=>x.equity).filter(v=>v!=null);
+    const rets=[];
+    for(let i=1;i<eqs.length;i++){if(eqs[i-1]>0)rets.push(eqs[i]/eqs[i-1]-1);}
+    if(rets.length>1){
+      const m=rets.reduce((a,b)=>a+b,0)/rets.length;
+      const sd=Math.sqrt(rets.reduce((a,b)=>a+(b-m)*(b-m),0)/(rets.length-1));
+      vol=sd*Math.sqrt(252)*100;
+      sharpe=sd>0?(m/sd)*Math.sqrt(252):null;
+    }
   }
   $('#kpis').innerHTML=
     kpi('Equity',usd(L.equity),(L.long_market_value!=null?usd(L.long_market_value)+' in stock':''),'',true)
     +kpi('All-time return',pct(L.total_return_pct),(gain==null?'':(gain>=0?'+':'')+usd(gain)+' on $100k'),gain==null?'':sgn(gain))
-    +kpi('Annualized',pct(ann),(days?'CAGR · '+Math.round(days)+' days live':''),ann==null?'':sgn(ann))
+    +kpi('Sharpe',sharpe==null?'—':sharpe.toFixed(2),(vol!=null?vol.toFixed(0)+'% annualized vol':''),sharpe==null?'':sgn(sharpe))
     +kpi('Today',day==null?'—':(day>=0?'+':'')+usd(day),open?'live':'at last close',day==null?'':sgn(day))
     +kpi('Cash',usd(L.cash),(L.equity?(L.cash/L.equity*100).toFixed(0)+'% of book':''));
   renderCake(L); renderHoldings(L); renderChart(d);
