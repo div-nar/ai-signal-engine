@@ -1,0 +1,145 @@
+<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Layercake Portfolio</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+:root{--bg:#0b1020;--card:#151b2e;--line:#243049;--txt:#e6ebf5;--sub:#8b97b3;
+--blue:#3b82f6;--green:#22c55e;--red:#ef4444;}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);
+font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:24px}
+h1{font-size:20px;margin:0 0 2px}.sub{color:var(--sub);font-size:12px;margin-bottom:20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:14px;margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card.accent{border-color:#3b82f6;box-shadow:inset 0 0 0 1px rgba(59,130,246,.35)}
+.k .lbl{color:var(--sub);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.k .val{font-size:24px;font-weight:700;margin-top:4px}
+.pos{color:var(--green)}.neg{color:var(--red)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}th{color:var(--sub);font-weight:600;font-size:11px;
+text-transform:uppercase;letter-spacing:.04em}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;min-width:60px;display:inline-block;vertical-align:middle;width:80px}
+.bar>i{display:block;height:100%;background:var(--blue)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.muted{color:var(--sub);font-size:12px}
+#docs h2{font-size:17px;margin:0 0 10px}
+#docs h3{font-size:14px;margin:18px 0 6px;color:var(--txt)}
+#docs p,#docs li{color:var(--sub);line-height:1.65;font-size:13px}
+#docs ol{margin:6px 0 6px 18px;padding:0}#docs li{margin-bottom:5px}
+#docs b{color:var(--txt)}#docs code{background:#0b1020;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:12px}
+</style></head><body><div class=wrap>
+<h1>Layercake paper portfolio</h1>
+<div class=sub id=meta>loading…</div>
+<div class=kpis id=kpis></div>
+<div class=card style="margin-bottom:20px"><canvas id=chart height=90></canvas>
+<div class=muted style="margin-top:8px"><span class=dot style="background:#8b97b3"></span>signal-eng era
+&nbsp;&nbsp;<span class=dot style="background:#3b82f6"></span>layercake (since Jun 29) · full account history from inception</div></div>
+<div class=card><table><thead><tr>
+<th>Symbol</th><th>Weight</th><th>Target</th><th></th><th>Mkt value</th>
+<th>Intraday P&L</th><th>Unreal. P&L</th></tr></thead>
+<tbody id=rows></tbody></table>
+<div class=muted id=postotal style="margin-top:10px"></div></div>
+<div class=card style="margin-top:20px" id=docs>
+<h2>How it works</h2>
+<p>A fully-automated, long-only <b>paper-trading</b> system for the AI-infrastructure equity complex.
+It ingests industry writing, forms a machine thesis, ranks names mechanically, and executes on a
+fixed schedule — no human in the loop. Two engines have run this $100,000 paper account: the
+retired <b>signal-eng</b> (grey on the chart) and the current <b>layercake</b> (blue). Everything
+below is paper money; none of this is investment advice.</p>
+
+<h3>layercake — the current engine</h3>
+<p>Core idea: the AI build-out is a five-layer <b>"cake"</b>, physical &rarr; value-capture —
+<b>power</b> (grid, generation, electrical gear), <b>fabrication</b> (foundries, semicap, materials),
+<b>compute</b> (accelerators &amp; memory), <b>infrastructure</b> (datacenters, cooling, networking),
+and <b>platform</b> (hyperscalers &amp; software). Baseline weights deliberately tilt toward the
+layers the Nasdaq underweights (power/fab/compute/infra) and away from platform's concentrated core.
+The universe is a curated ticker&rarr;layer map (~60 names); anything unmapped is ineligible.</p>
+<p>Each run is a five-stage pipeline:</p>
+<ol>
+<li><b>Ingest</b> — pulls supply- and demand-side writing (SemiAnalysis, Fabricated Knowledge,
+Stratechery, Platformer, Latent Space, Import AI), <b>HuggingFace Daily Papers</b>, and <b>SEC 8-K</b>
+filings for the mega-caps, into a local SQLite store.</li>
+<li><b>Thesis pass</b> — an LLM (<b>Gemini</b>) reads the organized corpus and emits a <i>layer
+tilt</i> (how to shade each layer vs baseline), a <i>market-regime</i> label, and a written thesis.
+The tilt must sum to ~zero (reallocation, not leverage), is clamped to each layer's
+<code>[8%, 35%]</code> band, then renormalized so the five layer budgets sum to 100%.</li>
+<li><b>Momentum</b> — within each layer, names are ranked by <b>12&ndash;1 momentum</b> (the classic
+trailing-12-month return excluding the most recent month), and the top 3 are selected.</li>
+<li><b>Assemble</b> — each layer's budget is split among its selected names, weighted by momentum and
+capped at <b>12% per name</b>. Names with <i>negative</i> momentum are left in <b>cash</b>
+(strategy-driven cash), so the book can sit below 100% invested when conviction is thin.</li>
+<li><b>Execute</b> — a weekly rhythm on the Alpaca paper account: recompute &amp; persist the target
+daily (no trades), <b>sell leg on Friday</b> (close names that left the target, trim overweights),
+<b>buy leg on Monday</b> (fill deficits with the freed cash). Orders are notional, min <code>$500</code>,
+no leverage, cash-capped.</li>
+</ol>
+
+<h3>signal-eng — v1, retired (the grey era)</h3>
+<p><b>signal-eng</b> ran this account before layercake. It used a daily LLM scorer plus a macro
+market-regime model to hold a book of <b>mega-cap AI names</b> (NVDA, MSFT, GOOGL, META, AMZN, AVGO,
+TSM, CEG, NRG …), turning scores into target weights and <b>rebalancing daily whenever the book
+drifted past a set threshold</b> from target. It also mirrored the book to a live brokerage
+(Interactive Brokers). It ran from account inception — <b>Mar 24, 2026 ($100,000)</b> — to the
+<b>layercake migration on Jun 29, 2026</b>, reaching about <b>$116,835 (+16.8%)</b> by the Jun 27
+close (the <span style="color:#8b97b3">grey</span> curve). It was retired at the migration in favour
+of layercake's more disciplined, cash-aware, layer-budgeted approach.</p>
+
+<h3>Stack &amp; this page</h3>
+<p>Python · SQLite · Gemini (thesis) · Alpaca paper API (execution) · scheduled with macOS launchd.
+This dashboard reads the account <b>live from Alpaca</b> on every load and merges the full
+inception-to-date equity history; it refreshes every 60&nbsp;seconds. Paper account only — not real
+money, not advice.</p>
+</div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const TOKEN=new URLSearchParams(location.search).get('token')||'';
+const usd=n=>n==null?'—':'$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0});
+const pct=n=>n==null?'—':(n>=0?'+':'')+Number(n).toFixed(2)+'%';
+const sign=n=>n>=0?'pos':'neg';
+let chart;
+function kpi(lbl,val,cls,accent){return `<div class="card k${accent?' accent':''}"><div class=lbl>${lbl}</div><div class="val ${cls||''}">${val}</div></div>`}
+async function load(){
+ let d;
+ try{d=await (await fetch('/api/data'+(TOKEN?'?token='+encodeURIComponent(TOKEN):''),{cache:'no-store'})).json();}
+ catch(e){$('#meta').innerHTML='<span class=neg>failed to reach API</span>';return;}
+ const L=d.live||{};
+ if(!L.ok){$('#meta').innerHTML='<span class=neg>API error: '+(L.error||'unauthorized — add ?token=…')+'</span>';return;}
+ const gain=(L.equity!=null)?L.equity-(L.net_deposits||100000):null;
+ const dayChg=(L.equity!=null&&L.last_equity!=null)?L.equity-L.last_equity:null;
+ const LC=d.layercake;
+ $('#meta').innerHTML=`updated ${d.generated_at} · target #${d.target.id} (${d.target.regime||'—'}) · `
+   +`<span class=dot style="background:${L.market_open?'#22c55e':'#8b97b3'}"></span>market ${L.market_open?'open':'closed'}`;
+ $('#kpis').innerHTML=
+   kpi('Equity',usd(L.equity))+
+   kpi('Net gain (all-time)',(gain==null?'—':usd(gain)+' ('+pct(L.total_return_pct)+')'),gain==null?'':sign(gain))+
+   kpi('Layercake net · since '+(LC?LC.since:'—'),(LC?usd(LC.gain)+' ('+pct(LC.pct)+')':'—'),LC?sign(LC.gain):'',true)+
+   kpi('1-day gain',(dayChg==null?'—':usd(dayChg)),dayChg==null?'':sign(dayChg))+
+   kpi('Cash position',usd(L.cash));
+ const P=L.positions||[];let ti=0,tu=0;
+ $('#rows').innerHTML=P.map(r=>{ti+=r.intraday_pl;tu+=r.unrealized_pl;
+   const w=(r.weight*100),t=(r.target*100);
+   return `<tr><td>${r.symbol}</td><td>${w.toFixed(1)}%</td><td class=muted>${t?t.toFixed(1)+'%':'—'}</td>
+   <td><span class=bar><i style="width:${Math.min(100,w/12*100)}%"></i></span></td>
+   <td>${usd(r.mv)}</td>
+   <td class=${sign(r.intraday_pl)}>${(r.intraday_pl>=0?'+':'')+usd(r.intraday_pl)}</td>
+   <td class=${sign(r.unrealized_pl)}>${(r.unrealized_pl>=0?'+':'')+usd(r.unrealized_pl)}</td></tr>`}).join('');
+ $('#postotal').innerHTML=P.length?`${P.length} positions · intraday <span class=${sign(ti)}>${usd(ti)}</span> · open unrealized <span class=${sign(tu)}>${usd(tu)}</span>`:'';
+ const H=d.history||[];
+ const labels=H.map(x=>x.date),eq=H.map(x=>x.equity),ret=H.map(x=>x.return_pct);
+ const migIdx=H.findIndex(x=>x.date>=d.migration);
+ const segClr=ctx=>(migIdx>=0&&ctx.p1DataIndex<=migIdx)?'#8b97b3':'#3b82f6';
+ if(chart)chart.destroy();
+ chart=new Chart($('#chart'),{type:'line',data:{labels,datasets:[
+   {label:'Equity',data:eq,yAxisID:'y',borderColor:'#3b82f6',segment:{borderColor:segClr},
+    backgroundColor:'rgba(59,130,246,.10)',fill:true,tension:.2,pointRadius:0},
+   {label:'Return %',data:ret,yAxisID:'y1',borderColor:'#22c55e',borderWidth:1,pointRadius:0,tension:.2}]},
+  options:{responsive:true,interaction:{mode:'index',intersect:false},
+   plugins:{legend:{labels:{color:'#8b97b3'}}},
+   scales:{x:{ticks:{color:'#8b97b3'},grid:{color:'#243049'}},
+    y:{position:'left',ticks:{color:'#3b82f6',callback:v=>'$'+(v/1000).toFixed(0)+'k'},grid:{color:'#243049'}},
+    y1:{position:'right',ticks:{color:'#22c55e',callback:v=>v.toFixed(0)+'%'},grid:{drawOnChartArea:false}}}}});
+}
+load();setInterval(load,60000);
+</script></body></html>
