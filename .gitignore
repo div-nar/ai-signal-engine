@@ -29,5 +29,5 @@ cron.log
 *.xlsx
 
 # Vector store / caches (regenerated locally)
-data/
+data/*
 !data/sp500.json
