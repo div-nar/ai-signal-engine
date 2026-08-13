@@ -14,6 +14,7 @@ Two autonomy modes (config.LLM_AUTONOMY):
 import json
 import os
 import re
+import subprocess
 import time
 
 import config
@@ -321,6 +322,47 @@ class _GeminiClient:
         return resp.text
 
 
+class _OpencodeClient:
+    """Thesis client backed by the local `opencode` CLI (opencode-go gateway).
+
+    Same interface as _GeminiClient: .generate(prompt) -> str. Runs opencode
+    non-interactively, parses the --format json event stream, and returns the
+    concatenated assistant text. Raises RuntimeError on any failure so the
+    caller's existing retry/backoff handles it.
+    """
+
+    def __init__(self, model: str | None = None, timeout_s: int | None = None):
+        self._model = model or config.OPENCODE_MODEL
+        self._timeout = timeout_s or config.OPENCODE_TIMEOUT_S
+
+    def generate(self, prompt: str) -> str:
+        cmd = ["opencode", "run", "--pure", "--format", "json",
+               "-m", self._model, prompt]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=self._timeout)
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"opencode run timed out after {self._timeout}s") from e
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"opencode run exited {proc.returncode}: {proc.stderr.strip()[:300]}")
+        parts = []
+        for line in proc.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "text":
+                parts.append(event.get("part", {}).get("text", ""))
+        text = "".join(parts).strip()
+        if not text:
+            raise RuntimeError("opencode run produced no assistant text")
+        return text
+
+
 def _generate_parsed(client, prompt: str) -> tuple[dict, str]:
     """Call the LLM with retries; return (parsed_json, raw_text)."""
     last_exc = None
@@ -396,7 +438,7 @@ def score_layer_thesis(docs: list[dict], prev_budgets: dict | None = None,
     callers should use INSTEAD of the dial pipeline when non-empty.
     """
     if client is None:
-        client = _GeminiClient()
+        client = _OpencodeClient()
     if autonomy is None:
         autonomy = getattr(config, "LLM_AUTONOMY", "guardrailed")
     full = autonomy == "full"
