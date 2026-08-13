@@ -15,6 +15,7 @@ from strategy.factors import momentum_scores, apply_name_adjustments
 from strategy.assemble import assemble_portfolio
 from scoring.thesis_scorer import score_layer_thesis, DOCS_PER_QUERY
 from pricing.history import fetch_recent_closes
+from ingestion.macro import fetch_macro_indicators, upcoming_earnings
 from execution.alpaca import execute_sells, execute_buys, get_alpaca_positions, get_tradable_symbols
 
 
@@ -118,11 +119,14 @@ def compute_weekly_target(docs: list[dict], db_path: str = DB_PATH,
     valid_symbols = None
     portfolio_context = None
     if full:
+        held = get_alpaca_positions(client=exec_client)["longs"]
         portfolio_context = {
-            "positions": get_alpaca_positions(client=exec_client)["longs"],
+            "positions": held,
             "momentum": _momentum_by_layer(scores),
             "broad_movers": _broad_movers(scores) if getattr(
                 config, "WHOLE_MARKET_MOMENTUM", False) else None,
+            "macro": fetch_macro_indicators(),
+            "earnings": upcoming_earnings(sorted(held)) if held else [],
             # Whole-market: don't hand the LLM a fixed list — it picks any liquid
             # US equity, validated against tradable symbols below. Curated mode
             # still injects the universe so the model stays inside it.

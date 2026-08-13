@@ -29,6 +29,9 @@ RSS_FEEDS = [
     {"url": "https://seekingalpha.com/feed.xml",                   "value_chain_layer": "market"},  # Seeking Alpha
     {"url": "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", "value_chain_layer": "market"},  # NYT Business
     {"url": "https://www.investing.com/rss/news_25.rss",           "value_chain_layer": "market"},  # Investing.com
+    # Macro / policy — rates, the Fed, the economy (the whole-market backdrop).
+    {"url": "https://www.federalreserve.gov/feeds/press_all.xml",  "value_chain_layer": "macro"},  # Fed press
+    {"url": "https://www.investing.com/rss/news_95.rss",           "value_chain_layer": "macro"},  # Investing economy
 ]
 
 # ── HuggingFace Daily Papers ───────────────────────────────────────────────────

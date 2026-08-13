@@ -288,6 +288,17 @@ def _format_portfolio_context(ctx: dict | None) -> str:
         if lag:
             parts.append("laggards: " + ", ".join(f"{t} {s:+.1%}" for t, s in lag))
         parts.append("")
+    macro = ctx.get("macro") or {}
+    if macro:
+        parts.append("### MACRO (level, 5-day change)")
+        parts.append(", ".join(
+            f"{k} {v['value']} ({v['chg_5d_pct']:+.1f}%)" for k, v in macro.items()))
+        parts.append("")
+    earnings = ctx.get("earnings") or []
+    if earnings:
+        parts.append("### EARNINGS WITHIN 14 DAYS (held names — event risk)")
+        parts.append(", ".join(f"{e['ticker']} {e['date']}" for e in earnings))
+        parts.append("")
     universe = ctx.get("universe")
     if universe:
         parts.append("### EXECUTABLE UNIVERSE\n" + ", ".join(sorted(universe)) + "\n")
