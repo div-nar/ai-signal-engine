@@ -137,7 +137,8 @@ def _build():
         "target": {"id": tgt.get("id"), "regime": tgt.get("regime"),
                    "computed_at": tgt.get("computed_at"),
                    "urgency": tgt.get("urgency", ""), "trade_gate": tgt.get("trade_gate", ""),
-                   "thesis": tgt.get("thesis", "")},
+                   "thesis": tgt.get("thesis", ""),
+                   "weights": tw},  # full intended book — dashboard shows it even when unfilled
         "recent_trades": _recent_trades(c),
         "live": {
             "ok": True, "market_open": bool(clock.is_open),

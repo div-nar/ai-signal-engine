@@ -252,17 +252,28 @@ function kpi(lbl,val,foot,cls,hero){
   return `<div class="kpi${hero?' hero':''}"><div class=lbl>${lbl}</div>
     <div class="val ${cls||''}">${val}</div><div class=foot>${foot||''}</div></div>`;}
 
-function renderCake(L){
+function renderCake(d){
+  const L=d.live||{}, tw=(d.target||{}).weights||{};
   const eq=L.equity||0, cash=L.cash||0;
-  const byL={}, holdsByL={}; CAKE_ORDER.forEach(l=>{byL[l]=0;holdsByL[l]=[];});
-  (L.positions||[]).forEach(p=>{const l=layerOf(p.symbol);byL[l]+=(p.mv||0);
-    if(p.mv>1)holdsByL[l].push(p);});
-  // rows top→bottom: uninvested cash band, then 'other', platform … power
-  const rows=[];
   const cashPct=eq?cash/eq*100:0;
-  rows.push({key:'cash',name:'uninvested',pct:cashPct,cash:true});
+  // When the account is mostly cash but the engine has a target book, show what
+  // it INTENDS to hold (pending fill) rather than a near-empty slab — visibility
+  // of *what*, not *when*. Otherwise show the actual book.
+  const pending = cashPct>40 && Object.keys(tw).length>0;
+  const byL={}, holdsByL={}; CAKE_ORDER.forEach(l=>{byL[l]=0;holdsByL[l]=[];});
+  if(pending){
+    for(const [s,w] of Object.entries(tw)){const l=layerOf(s);byL[l]+=w*100;
+      if(w>0.001)holdsByL[l].push({symbol:s,mv:w});}
+  }else{
+    (L.positions||[]).forEach(p=>{const l=layerOf(p.symbol);byL[l]+=(p.mv||0);
+      if(p.mv>1)holdsByL[l].push(p);});
+  }
+  const rows=[];
+  const targetCashPct=pending?Math.max(0,100-Object.values(tw).reduce((a,b)=>a+b*100,0)):cashPct;
+  rows.push({key:'cash',name:'uninvested',pct:targetCashPct,cash:true});
   CAKE_ORDER.forEach(l=>{
-    rows.push({key:l,name:l,pct:eq?byL[l]/eq*100:0,
+    rows.push({key:l,name:l,
+      pct: pending ? byL[l] : (eq?byL[l]/eq*100:0),
       chips:holdsByL[l].sort((a,b)=>b.mv-a.mv).map(p=>p.symbol)});});
   const H=380, min=22;
   const cake=$('#cake'); cake.innerHTML='';
@@ -281,33 +292,51 @@ function renderCake(L){
     cake.appendChild(el);
     requestAnimationFrame(()=>{el.style.height=h+'px';});
   });
-  const inv=100-cashPct;
-  $('#cakefoot').textContent=`${inv.toFixed(0)}% invested · ${(L.positions||[]).filter(p=>p.mv>1).length} names`;
+  if(pending){
+    $('#cakefoot').innerHTML=`<span style="color:var(--pw)">◷ target book</span> · ${Object.keys(tw).length} names · pending fill at next open`;
+  }else{
+    const inv=100-cashPct;
+    $('#cakefoot').textContent=`${inv.toFixed(0)}% invested · ${(L.positions||[]).filter(p=>p.mv>1).length} names`;
+  }
 }
 
-function renderHoldings(L){
-  const P=(L.positions||[]).filter(p=>p.mv>1).sort((a,b)=>b.mv-a.mv);
-  if(!P.length){$('#holdings').innerHTML='<div class=empty>No positions — the book is in cash, waiting on the next rebalance.</div>';return;}
-  let ti=0,tu=0;
-  const rows=P.map(r=>{ti+=r.intraday_pl||0;tu+=r.unrealized_pl||0;
-    const col=cssv(LC[layerOf(r.symbol)].c);
-    const w=(r.weight||0)*100, t=(r.target||0)*100, scale=Math.max(12,w,t);
-    return `<tr>
-      <td><span class=tk><span class=lyr style="background:${col}"></span>${r.symbol}</span></td>
-      <td>${w.toFixed(1)}%</td>
+function renderHoldings(d){
+  const L=d.live||{}, tw=(d.target||{}).weights||{};
+  const held={}; (L.positions||[]).forEach(p=>{if(p.mv>1)held[p.symbol]=p;});
+  // The book = every name held OR targeted, so pending buys are visible before
+  // they fill. Rows sorted by the larger of actual / target weight.
+  const syms=[...new Set([...Object.keys(held),...Object.keys(tw)])];
+  if(!syms.length){$('#holdings').innerHTML='<div class=empty>No positions and no target book yet.</div>';return;}
+  let ti=0,tu=0,nHeld=0,nPending=0;
+  const rowData=syms.map(s=>{
+    const p=held[s]; const w=p?(p.weight||0)*100:0; const t=(tw[s]||0)*100;
+    if(p){ti+=p.intraday_pl||0;tu+=p.unrealized_pl||0;nHeld++;}
+    else nPending++;
+    return {s,p,w,t};
+  }).sort((a,b)=>Math.max(b.w,b.t)-Math.max(a.w,a.t));
+  const rows=rowData.map(({s,p,w,t})=>{
+    const col=cssv(LC[layerOf(s)].c);
+    const scale=Math.max(12,w,t);
+    const pend=!p && t>0;
+    return `<tr${pend?' style="opacity:.72"':''}>
+      <td><span class=tk><span class=lyr style="background:${col}"></span>${s}${pend?' <span style="font-size:9px;color:var(--pw);letter-spacing:.04em">◷PENDING</span>':''}</span></td>
+      <td>${w?w.toFixed(1)+'%':'—'}</td>
       <td style="color:var(--sub)">${t?t.toFixed(1)+'%':'—'}</td>
       <td><span class=tvsa><span class=track>
         <span class=act style="width:${Math.min(100,w/scale*100)}%;background:${col}"></span>
         ${t?`<span class=tgt style="left:${Math.min(100,t/scale*100)}%"></span>`:''}
       </span></span></td>
-      <td>${usd(r.mv)}</td>
-      <td class=${sgn(r.intraday_pl)}>${(r.intraday_pl>=0?'+':'')+usd(r.intraday_pl)}</td>
-      <td class=${sgn(r.unrealized_pl)}>${(r.unrealized_pl>=0?'+':'')+usd(r.unrealized_pl)}</td>
+      <td>${p?usd(p.mv):'—'}</td>
+      <td class=${p?sgn(p.intraday_pl):''}>${p?(p.intraday_pl>=0?'+':'')+usd(p.intraday_pl):'—'}</td>
+      <td class=${p?sgn(p.unrealized_pl):''}>${p?(p.unrealized_pl>=0?'+':'')+usd(p.unrealized_pl):'—'}</td>
     </tr>`;}).join('');
+  const foot=nPending
+    ? `<span>${nHeld} held · <span style="color:var(--pw)">${nPending} pending</span></span>`
+    : `<span>${nHeld} positions</span>`;
   $('#holdings').innerHTML=`<table><thead><tr>
     <th>Name</th><th>Weight</th><th>Target</th><th>Actual vs target</th>
     <th>Value</th><th>Today</th><th>Unrealized</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class=foot><span>${P.length} positions</span>
+    <div class=foot>${foot}
     <span>today <span class=${sgn(ti)}>${(ti>=0?'+':'')+usd(ti)}</span></span>
     <span>open unrealized <span class=${sgn(tu)}>${(tu>=0?'+':'')+usd(tu)}</span></span></div>`;
 }
@@ -391,7 +420,7 @@ async function load(){
     +kpi('Sharpe',sharpe==null?'—':sharpe.toFixed(2),(vol!=null?vol.toFixed(0)+'% annualized vol':''),sharpe==null?'':sgn(sharpe))
     +kpi('Today',day==null?'—':(day>=0?'+':'')+usd(day),open?'live':'at last close',day==null?'':sgn(day))
     +kpi('Cash',usd(L.cash),(L.equity?(L.cash/L.equity*100).toFixed(0)+'% of book':''));
-  renderCake(L); renderHoldings(L); renderChart(d); renderActivity(d);
+  renderCake(d); renderHoldings(d); renderChart(d); renderActivity(d);
 }
 
 function renderActivity(d){
