@@ -371,17 +371,23 @@ async function load(){
       sharpe=sd>0?(m/sd)*Math.sqrt(252):null;
     }
   }
-  const bm=d.benchmarks||{};
-  const qqq=bm.QQQ?bm.QQQ.return_pct:null, spy=bm.SPY?bm.SPY.return_pct:null;
-  const alphaQ=(qqq!=null&&L.total_return_pct!=null)?L.total_return_pct-qqq:null;
+  // Annualized return (CAGR) from inception — a return metric that isn't the
+  // raw day-one number (shown on the Equity tile) and isn't benchmark-relative
+  // (the QQQ/SPY comparison lives on the chart).
+  let cagr=null;
+  {
+    const H0=d.history||[];
+    if(H0.length>1&&L.equity!=null){
+      const days=Math.max(1,(Date.now()-new Date(H0[0].date+'T00:00:00Z'))/864e5);
+      cagr=(Math.pow(L.equity/(L.net_deposits||1e5),365/days)-1)*100;
+    }
+  }
   const eqFoot=(L.total_return_pct!=null
       ?`<span class=${sgn(L.total_return_pct)}>${pct(L.total_return_pct)}</span> since day one`
       :'')+(L.long_market_value!=null?` · ${usd(L.long_market_value)} in stock`:'');
   $('#kpis').innerHTML=
     kpi('Equity',usd(L.equity),eqFoot,'',true)
-    +kpi('vs QQQ',alphaQ==null?'—':(alphaQ>=0?'+':'')+alphaQ.toFixed(1)+' pts',
-         (qqq!=null?'QQQ '+pct(qqq)+(spy!=null?' · SPY '+pct(spy):''):'benchmark n/a'),
-         alphaQ==null?'':sgn(alphaQ))
+    +kpi('Annualized',pct(cagr),'CAGR since inception',cagr==null?'':sgn(cagr))
     +kpi('Sharpe',sharpe==null?'—':sharpe.toFixed(2),(vol!=null?vol.toFixed(0)+'% annualized vol':''),sharpe==null?'':sgn(sharpe))
     +kpi('Today',day==null?'—':(day>=0?'+':'')+usd(day),open?'live':'at last close',day==null?'':sgn(day))
     +kpi('Cash',usd(L.cash),(L.equity?(L.cash/L.equity*100).toFixed(0)+'% of book':''));
