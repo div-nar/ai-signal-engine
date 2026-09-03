@@ -92,6 +92,11 @@ GEMINI_MAX_OUTPUT_TOKENS = 8192
 OPENCODE_MODEL = "opencode-go/qwen3.7-max"
 OPENCODE_TIMEOUT_S = 120
 
+# ── thesis LLM provider selection ───────────────────────────────────────────────
+# "opencode" (default) | "claude_cli" | "gemini". See scoring.thesis_scorer._make_client.
+THESIS_LLM_PROVIDER = "claude_cli"
+CLAUDE_CLI_TIMEOUT_S = 180
+
 # Embeddings moved to a LOCAL model (fastembed / nomic-embed-text-v1.5, 768-dim)
 # in chroma_store.py after the Gemini project was 403-suspended. No API embedding
 # constant remains. See docs/superpowers/specs/2026-08-13-*.
@@ -144,4 +149,7 @@ LLM_DOCS_PER_QUERY = 10
 # ── Performance accounting ─────────────────────────────────────────────────────
 # Net capital deposited into the (paper) account, used as the cost basis for
 # total-return math in portfolio snapshots. No top-ups/withdrawals to date.
-STARTING_CAPITAL = 100_000.0
+# Reset 2026-09-03: book fully liquidated to cash and rebaselined here to
+# measure the Claude-CLI thesis-LLM provider on a clean track record,
+# separate from the opencode-era return above.
+STARTING_CAPITAL = 108_157.88

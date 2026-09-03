@@ -403,6 +403,43 @@ class _OpencodeClient:
         return text
 
 
+class _ClaudeCLIClient:
+    """Thesis client backed by the local `claude` CLI (Claude Code, print mode).
+
+    Same interface as _GeminiClient/_OpencodeClient: .generate(prompt) -> str.
+    Runs `claude -p <prompt>` non-interactively and returns stdout. Raises
+    RuntimeError on any failure so the caller's existing retry/backoff handles it.
+    """
+
+    def __init__(self, timeout_s: int | None = None):
+        self._timeout = timeout_s or config.CLAUDE_CLI_TIMEOUT_S
+
+    def generate(self, prompt: str) -> str:
+        cmd = ["claude", "-p", prompt]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=self._timeout)
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"claude -p timed out after {self._timeout}s") from e
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"claude -p exited {proc.returncode}: {proc.stderr.strip()[:300]}")
+        text = proc.stdout.strip()
+        if not text:
+            raise RuntimeError("claude -p produced no output")
+        return text
+
+
+def _make_client():
+    """Select the thesis LLM client from config.THESIS_LLM_PROVIDER."""
+    provider = getattr(config, "THESIS_LLM_PROVIDER", "opencode")
+    if provider == "claude_cli":
+        return _ClaudeCLIClient()
+    if provider == "gemini":
+        return _GeminiClient()
+    return _OpencodeClient()
+
+
 def _generate_parsed(client, prompt: str) -> tuple[dict, str]:
     """Call the LLM with retries; return (parsed_json, raw_text)."""
     last_exc = None
@@ -479,7 +516,7 @@ def score_layer_thesis(docs: list[dict], prev_budgets: dict | None = None,
     callers should use INSTEAD of the dial pipeline when non-empty.
     """
     if client is None:
-        client = _OpencodeClient()
+        client = _make_client()
     if autonomy is None:
         autonomy = getattr(config, "LLM_AUTONOMY", "guardrailed")
     full = autonomy == "full"

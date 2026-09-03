@@ -17,6 +17,12 @@ from urllib.parse import urlparse, parse_qs
 
 NET_DEPOSITS = 100_000.0
 MIGRATION = "2026-06-29"
+# Book fully liquidated and rebaselined this date (Claude-CLI thesis LLM cutover) —
+# the equity CHART starts here so it isn't dominated by the pre-reset history, and
+# the Equity tile's total-return figure is measured from this fixed baseline too.
+# CAGR still measures true since-inception performance off NET_DEPOSITS, unaffected.
+RESET_DATE = "2026-09-03"
+RESET_EQUITY = 108_157.88
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -128,11 +134,18 @@ def _build():
                      "gain": eq - base["equity"],
                      "pct": (eq - base["equity"]) / base["equity"] * 100}
 
+    # Chart shows only since the reset (visual, matches the liquidation) — CAGR
+    # below keeps using the full `history` (true since-inception, unaffected).
+    chart_history = [x for x in history if x["date"] >= RESET_DATE] or history[-1:]
+
     return {
         "generated_at": dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
         "migration": MIGRATION,
+        "reset_date": RESET_DATE,
         "history": history,
+        "chart_history": chart_history,
         "benchmarks": _benchmarks(history),
+        "chart_benchmarks": _benchmarks(chart_history),
         "layercake": layercake,
         "target": {"id": tgt.get("id"), "regime": tgt.get("regime"),
                    "computed_at": tgt.get("computed_at"),
@@ -146,7 +159,7 @@ def _build():
             "long_market_value": float(acct.long_market_value or 0.0),
             "last_equity": float(acct.last_equity),
             "net_deposits": NET_DEPOSITS,
-            "total_return_pct": (eq - NET_DEPOSITS) / NET_DEPOSITS * 100,
+            "total_return_pct": (eq - RESET_EQUITY) / RESET_EQUITY * 100,
             "positions": positions,
         },
     }

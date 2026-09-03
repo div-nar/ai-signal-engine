@@ -349,11 +349,11 @@ function renderLegend(){
 }
 
 function renderChart(d){
-  const H=d.history||[]; const labels=H.map(x=>x.date), eq=H.map(x=>x.equity);
+  const H=d.chart_history||d.history||[]; const labels=H.map(x=>x.date), eq=H.map(x=>x.equity);
   const migIdx=H.findIndex(x=>x.date>=d.migration);
   const pf=cssv('--pf'), grey=cssv('--faint'), ot=cssv('--ot');
   const seg=ctx=>(migIdx>=0&&ctx.p1DataIndex<=migIdx)?grey:pf;
-  const bm=d.benchmarks||{};
+  const bm=d.chart_benchmarks||d.benchmarks||{};
   const ds=[{label:'Layercake',data:eq,borderColor:pf,segment:{borderColor:seg},borderWidth:2,
       fill:true,tension:.18,pointRadius:0,order:0,
       backgroundColor:c=>{const a=c.chart.ctx.createLinearGradient(0,0,0,180);
@@ -412,7 +412,7 @@ async function load(){
     }
   }
   const eqFoot=(L.total_return_pct!=null
-      ?`<span class=${sgn(L.total_return_pct)}>${pct(L.total_return_pct)}</span> since day one`
+      ?`<span class=${sgn(L.total_return_pct)}>${pct(L.total_return_pct)}</span> since reset`
       :'')+(L.long_market_value!=null?` · ${usd(L.long_market_value)} in stock`:'');
   $('#kpis').innerHTML=
     kpi('Equity',usd(L.equity),eqFoot,'',true)
