@@ -407,15 +407,28 @@ class _ClaudeCLIClient:
     """Thesis client backed by the local `claude` CLI (Claude Code, print mode).
 
     Same interface as _GeminiClient/_OpencodeClient: .generate(prompt) -> str.
-    Runs `claude -p <prompt>` non-interactively and returns stdout. Raises
-    RuntimeError on any failure so the caller's existing retry/backoff handles it.
+    Runs `claude -p <prompt>` non-interactively and returns stdout. `--tools ""`
+    disables all tools (Bash, Read, etc.) — this machine's global settings
+    pre-approve Bash(*), so without this flag an unsupervised scheduled run
+    would have unrestricted shell/filesystem access instead of being a plain
+    text-completion call like its _OpencodeClient/_GeminiClient siblings.
+    Raises RuntimeError on any failure so the caller's existing retry/backoff
+    handles it.
     """
 
     def __init__(self, timeout_s: int | None = None):
         self._timeout = timeout_s or config.CLAUDE_CLI_TIMEOUT_S
 
     def generate(self, prompt: str) -> str:
-        cmd = ["claude", "-p", prompt]
+        # `--tools` is variadic; the `=` form is required so it doesn't swallow
+        # the prompt argument that follows into an (empty-then-populated) tool
+        # list. Verified this blocks Bash/Read/Write/Edit. Do NOT also pass
+        # --strict-mcp-config: combined with --tools= it resets tool access
+        # back to the full default set (reproduced; likely a CLI parsing bug)
+        # — worse than not restricting at all. MCP servers (Gmail, Drive,
+        # Supabase, ...) stay nominally loaded but have no bearing on a
+        # JSON-only financial thesis prompt.
+        cmd = ["claude", "-p", "--tools=", prompt]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
                                   timeout=self._timeout)
