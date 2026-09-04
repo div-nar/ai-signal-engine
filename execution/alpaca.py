@@ -9,6 +9,24 @@ from alpaca.trading.enums import OrderSide, TimeInForce
 _MIN_ORDER_VALUE = 500.0
 _ORDER_DELAY_S = 0.3
 _TRADABLE_CACHE: set | None = None
+_ALPACA_TIMEOUT_S = 30.0
+
+
+def _bound_timeout(client, timeout_s: float = _ALPACA_TIMEOUT_S):
+    """alpaca-py's RESTClient exposes no timeout param — every call (get_account,
+    get_all_positions, close_all_positions, ...) can hang forever on a stalled
+    connection (traced: self._session.request(...) in alpaca/common/rest.py has
+    no timeout in its opts dict). Patch a default onto the underlying
+    requests.Session so every call through this client instance is bounded."""
+    session = client._session
+    orig_request = session.request
+
+    def _request_with_timeout(*args, **kwargs):
+        kwargs.setdefault("timeout", timeout_s)
+        return orig_request(*args, **kwargs)
+
+    session.request = _request_with_timeout
+    return client
 
 
 def get_tradable_symbols(client=None) -> set:
@@ -70,7 +88,7 @@ def _get_client():
     secret_key = os.environ.get("ALPACA_SECRET_KEY")
     if not api_key or not secret_key:
         return None
-    return TradingClient(api_key, secret_key, paper=True)
+    return _bound_timeout(TradingClient(api_key, secret_key, paper=True))
 
 
 def _wait_for_cancels(client):

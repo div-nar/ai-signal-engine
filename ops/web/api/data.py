@@ -23,6 +23,23 @@ MIGRATION = "2026-06-29"
 # CAGR still measures true since-inception performance off NET_DEPOSITS, unaffected.
 RESET_DATE = "2026-09-03"
 RESET_EQUITY = 108_157.88
+ALPACA_TIMEOUT_S = 30.0
+
+
+def _bound_timeout(client, timeout_s: float = ALPACA_TIMEOUT_S):
+    """alpaca-py's RESTClient exposes no timeout param — every call can hang
+    forever on a stalled connection. This function is polled every 60s by the
+    live dashboard, so a hang here degrades the page, not just the trade job.
+    Patches a default onto the underlying requests.Session."""
+    session = client._session
+    orig_request = session.request
+
+    def _request_with_timeout(*args, **kwargs):
+        kwargs.setdefault("timeout", timeout_s)
+        return orig_request(*args, **kwargs)
+
+    session.request = _request_with_timeout
+    return client
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -48,7 +65,7 @@ def _benchmarks(history, start_equity=NET_DEPOSITS):
     from alpaca.data.timeframe import TimeFrame
     from alpaca.data.enums import DataFeed
     start = dt.date.fromisoformat(history[0]["date"])
-    dcli = StockHistoricalDataClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"])
+    dcli = _bound_timeout(StockHistoricalDataClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"]))
     try:
         bars = dcli.get_stock_bars(StockBarsRequest(
             symbol_or_symbols=["SPY", "QQQ"], timeframe=TimeFrame.Day,
@@ -99,7 +116,7 @@ def _recent_trades(client, limit=12):
 def _build():
     from alpaca.trading.client import TradingClient
     from alpaca.trading.requests import GetPortfolioHistoryRequest
-    c = TradingClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"], paper=True)
+    c = _bound_timeout(TradingClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"], paper=True))
 
     acct = c.get_account()
     clock = c.get_clock()

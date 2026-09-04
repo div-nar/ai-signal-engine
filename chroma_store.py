@@ -1,4 +1,5 @@
 import os
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,13 @@ _EMBEDDER = None
 # while keeping per-doc embed sub-second. Research docs lead with their signal.
 MAX_EMBED_CHARS = 8000
 
+# TextEmbedding's first call re-validates/downloads the HF cache with no
+# enforced timeout anywhere in that stack (huggingface_hub / xet-core) — this
+# exact call hung a scheduled run for a full week (2026-08-26 to 2026-09-02).
+# Bounding it in a daemon thread turns a silent multi-day hang into a fast,
+# catchable failure instead.
+_EMBEDDER_INIT_TIMEOUT_S = 60
+
 
 def init_chroma(path: str) -> chromadb.ClientAPI:
     client = chromadb.PersistentClient(path=path)
@@ -27,11 +35,33 @@ def init_chroma(path: str) -> chromadb.ClientAPI:
 
 
 def _get_embedder():
-    """Lazy singleton fastembed model (first call downloads the ONNX weights)."""
+    """Lazy singleton fastembed model (first call downloads the ONNX weights).
+
+    Init runs in a daemon thread with a hard timeout — see
+    _EMBEDDER_INIT_TIMEOUT_S. Raises RuntimeError on timeout/failure rather
+    than hanging; callers (chroma init/backfill) already treat this path as
+    best-effort/non-fatal."""
     global _EMBEDDER
     if _EMBEDDER is None:
         from fastembed import TextEmbedding
-        _EMBEDDER = TextEmbedding(_EMBED_MODEL)
+        result = {}
+
+        def _init():
+            try:
+                result["model"] = TextEmbedding(_EMBED_MODEL)
+            except Exception as e:
+                result["error"] = e
+
+        t = threading.Thread(target=_init, daemon=True)
+        t.start()
+        t.join(timeout=_EMBEDDER_INIT_TIMEOUT_S)
+        if t.is_alive():
+            raise RuntimeError(
+                f"TextEmbedding init exceeded {_EMBEDDER_INIT_TIMEOUT_S}s "
+                "(stuck HF download?) — abandoning, not waiting further")
+        if "error" in result:
+            raise result["error"]
+        _EMBEDDER = result["model"]
     return _EMBEDDER
 
 
