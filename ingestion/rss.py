@@ -2,7 +2,21 @@
 import re
 from html.parser import HTMLParser
 import feedparser
+import httpx
 from db import insert_document, DEFAULT_DB
+
+_FETCH_TIMEOUT_S = 15
+
+
+def _fetch_feed(feed_url: str):
+    """Fetch feed bytes with a timeout, then hand off to feedparser.
+
+    feedparser.parse(url) fetches the URL itself with NO timeout — a single
+    unresponsive host (seen hanging a scheduled trade run for 45+ minutes)
+    blocks forever. Fetching with httpx first bounds that."""
+    resp = httpx.get(feed_url, timeout=_FETCH_TIMEOUT_S, follow_redirects=True)
+    resp.raise_for_status()
+    return feedparser.parse(resp.content)
 
 
 class _HTMLStripper(HTMLParser):
@@ -25,7 +39,7 @@ def _strip_html(html: str) -> str:
 
 def fetch_rss_entries(feed_url: str) -> list[dict]:
     """Parse RSS feed and return list of {title, url, published, content} dicts."""
-    feed = feedparser.parse(feed_url)
+    feed = _fetch_feed(feed_url)
     entries = []
     for entry in feed.get("entries", []):
         if entry.get("content"):
@@ -48,8 +62,16 @@ def ingest_rss(
     db_path: str = str(DEFAULT_DB),
     chroma_client=None,
 ) -> int:
-    """Fetch RSS entries and insert new ones into DB. Returns count of new docs."""
-    feed = feedparser.parse(feed_url)
+    """Fetch RSS entries and insert new ones into DB. Returns count of new docs.
+
+    A single unresponsive/erroring feed is non-fatal — logs a warning and
+    contributes 0 new docs rather than blocking the rest of ingestion (and the
+    trading run behind it)."""
+    try:
+        feed = _fetch_feed(feed_url)
+    except Exception as e:
+        print(f"  WARNING: RSS fetch failed for {feed_url} — skipping ({e})")
+        return 0
     raw_entries = feed.entries if hasattr(feed, "entries") else feed.get("entries", [])
     count = 0
     for entry in raw_entries:

@@ -36,9 +36,11 @@ def _target():
     return {"id": None, "weights": {}, "regime": None, "computed_at": None}
 
 
-def _benchmarks(history):
-    """SPY & QQQ normalized to the account's $100k start, forward-filled onto the
-    portfolio's own dates — so the page can plot the alpha and headline vs-QQQ."""
+def _benchmarks(history, start_equity=NET_DEPOSITS):
+    """SPY & QQQ normalized to `start_equity` at history[0]'s date, forward-filled
+    onto the portfolio's own dates — so the page can plot the alpha and headline
+    vs-QQQ. `start_equity` must match whatever the Layercake line itself starts
+    at over this same `history` window, or the lines aren't on equal footing."""
     if not history:
         return {}
     from alpaca.data.historical import StockHistoricalDataClient
@@ -59,13 +61,13 @@ def _benchmarks(history):
         if not closes:
             continue
         first = closes[min(closes)]
-        series, last = [], NET_DEPOSITS
+        series, last = [], start_equity
         for h in history:
             if h["date"] in closes:
-                last = closes[h["date"]] / first * NET_DEPOSITS
+                last = closes[h["date"]] / first * start_equity
             series.append(round(last, 2))
         out[sym] = {"equity": series,
-                    "return_pct": (series[-1] - NET_DEPOSITS) / NET_DEPOSITS * 100}
+                    "return_pct": (series[-1] - start_equity) / start_equity * 100}
     return out
 
 
@@ -145,7 +147,9 @@ def _build():
         "history": history,
         "chart_history": chart_history,
         "benchmarks": _benchmarks(history),
-        "chart_benchmarks": _benchmarks(chart_history),
+        # Same starting dollar amount as the Layercake line itself over this
+        # window, so SPY/QQQ/Layercake are all "if you'd put $X in at t=0".
+        "chart_benchmarks": _benchmarks(chart_history, start_equity=chart_history[0]["equity"]),
         "layercake": layercake,
         "target": {"id": tgt.get("id"), "regime": tgt.get("regime"),
                    "computed_at": tgt.get("computed_at"),
