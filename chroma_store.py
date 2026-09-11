@@ -34,14 +34,24 @@ def init_chroma(path: str) -> chromadb.ClientAPI:
     return client
 
 
+_EMBEDDER_INIT_FAILED = False
+
+
 def _get_embedder():
     """Lazy singleton fastembed model (first call downloads the ONNX weights).
 
     Init runs in a daemon thread with a hard timeout — see
-    _EMBEDDER_INIT_TIMEOUT_S. Raises RuntimeError on timeout/failure rather
-    than hanging; callers (chroma init/backfill) already treat this path as
-    best-effort/non-fatal."""
-    global _EMBEDDER
+    _EMBEDDER_INIT_TIMEOUT_S. A timeout/failure is cached in
+    _EMBEDDER_INIT_FAILED so every subsequent call this process fails FAST
+    instead of re-attempting and re-waiting the full timeout — upsert_research_doc/
+    upsert_signal_record catch this per-document and treat it as best-effort/
+    non-fatal, so without caching the failure, one stuck download (e.g. a hung
+    HF/xet transfer) turns a single 60s timeout into a 60s stall PER DOCUMENT
+    across thousands of docs. This exact amplification hung a scheduled run
+    for 4 days (2026-09-07 to 2026-09-11)."""
+    global _EMBEDDER, _EMBEDDER_INIT_FAILED
+    if _EMBEDDER_INIT_FAILED:
+        raise RuntimeError("TextEmbedding init previously failed this process — not retrying")
     if _EMBEDDER is None:
         from fastembed import TextEmbedding
         result = {}
@@ -56,10 +66,12 @@ def _get_embedder():
         t.start()
         t.join(timeout=_EMBEDDER_INIT_TIMEOUT_S)
         if t.is_alive():
+            _EMBEDDER_INIT_FAILED = True
             raise RuntimeError(
                 f"TextEmbedding init exceeded {_EMBEDDER_INIT_TIMEOUT_S}s "
                 "(stuck HF download?) — abandoning, not waiting further")
         if "error" in result:
+            _EMBEDDER_INIT_FAILED = True
             raise result["error"]
         _EMBEDDER = result["model"]
     return _EMBEDDER
