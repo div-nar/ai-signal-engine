@@ -4,4 +4,7 @@ cd /Users/div-nar/sideproj/ai-signal-engine
 # Without this the scheduled thesis step dies with FileNotFoundError: 'opencode'.
 export PATH="/opt/homebrew/bin:$PATH"
 export $(cat .env | xargs)
-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 main.py "$@"
+# -i: prevent idle system sleep for the life of this process. The Mac going to
+# sleep mid-run (confirmed via `pmset -g log`) is the likely trigger behind
+# two separate multi-day hangs (embedding download stalling mid-transfer).
+caffeinate -i /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 main.py "$@"
